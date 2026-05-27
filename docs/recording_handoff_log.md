@@ -3547,3 +3547,19 @@
 - `python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --output-dir runs\learning_4\run_001_single_object_random_generalization_seed7`
 - `fetch_loop_spec.json` confirms `RobotRLFetchBoxPlaceBasicRandomNarrow-v0 -> RobotRLFetchBoxPlaceBasicRandomMedium-v0 -> RobotRLFetchBoxPlaceBasicRandomWide-v0 -> RobotRLFetchBoxPlaceRandomWide-v0 -> RobotRLFetchBoxPlaceRandomWideReturnHome-v0`.
 - r30o must hold any stage as `아직 애매함` when metrics pass but the latest rollout video has not been visually checked for real grasp/lift/carry/place, no penetration, no sliding/teleport success, and stable home return when required.
+
+## 091 - 2026-05-27 KST - GitHub RARL baseline and learning_4 success gate fix
+
+### Request
+- Connect `C:\Users\SSAFY\Desktop\RobotRL` to `https://github.com/hojunjeon/RARL.git` and manage versions from this repo going forward.
+
+### Changes
+- Initialized a local Git repository on branch `main`.
+- Added remote `origin=https://github.com/hojunjeon/RARL.git`.
+- Updated `.gitignore` so code, docs, README files, and lightweight JSON run metadata are tracked while checkpoints, videos, TensorBoard events, and logs stay out of Git.
+- Created and pushed baseline commit `4902ce4 Establish RobotRL version control baseline`.
+- While verifying the live learning_4 process, found run001 had stopped because single-object eval records can carry `success_requires_valid_box_entry_rate=null`; fixed `is_success_condition_met` to treat `None` as the single-object default.
+
+### Verification
+- Remote push succeeded: `main -> origin/main`.
+- Focused success-gate test passed: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_success_condition_treats_none_valid_entry_flag_as_single_object_default tests.test_fetch_training.FetchTrainingConfigTest.test_success_condition_rejects_success_without_object1_valid_entry -v`.

@@ -148,7 +148,10 @@ def build_fetch_loop_spec(config: FetchLoopConfig) -> dict[str, object]:
 
 def is_success_condition_met(eval_record: dict[str, object], *, video_path: Path, threshold: float) -> bool:
     success_rate = float(eval_record["success_rate"])
-    success_requires_valid_box_entry = float(eval_record.get("success_requires_valid_box_entry_rate", 1.0)) >= 0.5
+    success_requires_valid_box_entry_value = eval_record.get("success_requires_valid_box_entry_rate", 1.0)
+    if success_requires_valid_box_entry_value is None:
+        success_requires_valid_box_entry_value = 1.0
+    success_requires_valid_box_entry = float(success_requires_valid_box_entry_value) >= 0.5
     required_object_names = eval_record.get("required_object_names")
     if success_requires_valid_box_entry:
         if required_object_names:

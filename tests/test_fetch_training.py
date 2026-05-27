@@ -919,6 +919,22 @@ class FetchTrainingConfigTest(unittest.TestCase):
                 )
             )
 
+    def test_success_condition_treats_none_valid_entry_flag_as_single_object_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "rollout.gif"
+            video_path.write_bytes(b"GIF89a")
+            self.assertTrue(
+                is_success_condition_met(
+                    {
+                        "success_rate": 0.9,
+                        "episodes": 20,
+                        "success_requires_valid_box_entry_rate": None,
+                    },
+                    video_path=video_path,
+                    threshold=0.8,
+                )
+            )
+
     def test_success_condition_rejects_success_without_object1_valid_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             video_path = Path(tmp) / "rollout.gif"
