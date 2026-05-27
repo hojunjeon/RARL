@@ -101,6 +101,8 @@ def main() -> int:
     )
     loop_parser.add_argument("--resume-from", type=Path)
     loop_parser.add_argument("--dry-run", action="store_true")
+    loop_parser.add_argument("--visual-approval-timeout-seconds", type=float, default=300.0)
+    loop_parser.add_argument("--visual-approval-poll-interval-seconds", type=float, default=5.0)
 
     improve_parser = subparsers.add_parser(
         "improve-loop",
@@ -215,6 +217,9 @@ def main() -> int:
                     max_iterations=args.max_iterations,
                     resume_from=args.resume_from,
                     dry_run=args.dry_run,
+                    visual_approval_required=args.curriculum == "single-random-to-return",
+                    visual_approval_timeout_seconds=args.visual_approval_timeout_seconds,
+                    visual_approval_poll_interval_seconds=args.visual_approval_poll_interval_seconds,
                 )
             )
         except FetchDependencyError as exc:

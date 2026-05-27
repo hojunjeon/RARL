@@ -3563,3 +3563,29 @@
 ### Verification
 - Remote push succeeded: `main -> origin/main`.
 - Focused success-gate test passed: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_success_condition_treats_none_valid_entry_flag_as_single_object_default tests.test_fetch_training.FetchTrainingConfigTest.test_success_condition_rejects_success_without_object1_valid_entry -v`.
+
+## 092 - 2026-05-28 KST - learning_4 visual gate enforcement correction
+
+### Request
+- `runs\learning_4\run_001_single_object_random_generalization_seed7` reached passing final scalar metrics, but `stage_05_iteration_043_rollout.gif` / contact sheet did not visually prove approach, stable grasp/contact, lift/carry, physically valid placement, and home return.
+- Correct future learning_4 evaluation/stage advancement so numeric success cannot bypass the mandatory visual gate, without weakening the existing success criteria or modifying archived run artifacts.
+
+### Changes
+- Added a `visual_approval_required` field to `FetchLoopConfig` and persisted it in `fetch_loop_spec.json`.
+- Enabled `visual_approval_required` automatically for `fetch-loop --curriculum single-random-to-return`.
+- Strengthened `is_success_condition_met()` so visual-gated runs require a sibling approval marker JSON before a stage can advance or complete.
+- Replaced the bare approval marker with schema validation: `schema_version=1`, `approved=true`, nonempty `reviewer` and `tool`, exact `reviewed_gif_path`, matching `artifact_sha256`, and explicit per-criterion pass/fail entries for approach, stable contact/grasp, lift/carry, collidable-box placement, home return, and no penetration/sliding/teleport.
+- Added automated visual-gate trajectory checks for the selected single-object video episode: object starts outside the target zone, object moves materially, gripper gets close to the object, object lifts/carries, selected episode succeeds, and return-home stages preserve place-return success.
+- Added a bounded visual approval handoff: when a visual-gated eval passes numeric and trajectory readiness, the loop records the pending marker path and GIF hash, waits/polls for the same artifact's approval marker, rewrites the eval record with approval status, and only then advances/completes.
+- Added configurable approval wait controls: `visual_approval_timeout_seconds` and `visual_approval_poll_interval_seconds`, exposed through `fetch-loop --visual-approval-timeout-seconds` and `--visual-approval-poll-interval-seconds`.
+- Added max-step object displacement diagnostics for the selected GIF episode: `video_max_step_object_displacement` and `video_max_step_object_displacement_without_contact`, with the visual gate rejecting large no-contact movement as sliding/teleport evidence.
+- Changed evaluation GIF selection from "always episode 0" to "first successful eval episode when one exists, otherwise the first rendered fallback episode".
+- Added eval metadata `video_episode_index`, `video_episode_success`, `video_initial_object_goal_distance`, `video_object_motion_distance`, `video_min_gripper_object_distance`, `video_max_object_lift`, `video_place_return_success`, and `video_return_home_success` so future artifacts identify which episode the GIF represents and expose trajectory proof.
+- Left existing scalar thresholds, valid-entry checks, return-home checks, and run artifact archives unchanged.
+
+### Verification
+- Red before fix: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_success_condition_requires_visual_approval_marker_when_configured tests.test_fetch_training.FetchTrainingConfigTest.test_visual_approval_rejects_artifact_hash_and_failed_criteria_mismatches tests.test_fetch_training.FetchTrainingConfigTest.test_visual_gate_rejects_weak_single_object_trajectory_diagnostics tests.test_fetch_training.FetchTrainingConfigTest.test_eval_video_records_first_successful_episode_instead_of_first_episode -v` failed because bare approvals, hash/criteria mismatches, weak trajectory diagnostics, and missing GIF trajectory metadata were not rejected.
+- Focused green: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_cli_fetch_loop_curriculum_dry_run_records_single_random_to_return_path tests.test_fetch_training.FetchTrainingConfigTest.test_success_condition_requires_visual_approval_marker_when_configured tests.test_fetch_training.FetchTrainingConfigTest.test_visual_approval_rejects_artifact_hash_and_failed_criteria_mismatches tests.test_fetch_training.FetchTrainingConfigTest.test_visual_gate_rejects_weak_single_object_trajectory_diagnostics tests.test_fetch_training.FetchTrainingConfigTest.test_visual_approval_wait_polls_same_gif_hash_before_accepting_marker tests.test_fetch_training.FetchTrainingConfigTest.test_visual_approval_wait_rejects_marker_when_gif_hash_changes tests.test_fetch_training.FetchTrainingConfigTest.test_visual_gate_rejects_large_no_contact_step_displacement tests.test_fetch_training.FetchTrainingConfigTest.test_eval_video_records_first_successful_episode_instead_of_first_episode -v` passed, 8 tests OK.
+- Full green: `python -m unittest discover -s tests -v` passed, 81 tests OK.
+- Dry-run spec check: `python -m robotrl.cli fetch-loop --dry-run --curriculum single-random-to-return --chunk-timesteps 123 --eval-episodes 3 --success-threshold 0.8 --visual-approval-timeout-seconds 12 --visual-approval-poll-interval-seconds 2 --output-dir .omx\learning4_visual_gate_dryrun3` wrote `visual_approval_required=true`, `visual_approval_timeout_seconds=12.0`, and `visual_approval_poll_interval_seconds=2.0`; temporary dry-run output was removed after inspection.
+- Ruff unavailable: `python -m ruff check robotrl\fetch_training.py robotrl\cli.py tests\test_fetch_training.py` failed with `No module named ruff`.

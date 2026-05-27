@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import shutil
 import sys
+import time
 from dataclasses import dataclass
 from itertools import count
 from pathlib import Path
+
+import numpy as np
 
 from robotrl.fetch_envs import (
     FETCH_BOX_PLACE_BASIC_CURRICULUM_ENV_ID,
@@ -40,6 +44,21 @@ class FetchDependencyError(RuntimeError):
 
 
 FETCH_MAX_EPISODE_STEPS = FETCH_BOX_PLACE_MAX_EPISODE_STEPS
+VISUAL_APPROVAL_SCHEMA_VERSION = 1
+VISUAL_APPROVAL_CRITERIA = (
+    "approach",
+    "stable_contact_or_grasp",
+    "lift_or_carry",
+    "collidable_box_placement",
+    "home_return",
+    "no_penetration_sliding_or_teleport",
+)
+VISUAL_MIN_INITIAL_OBJECT_GOAL_DISTANCE = 0.08
+VISUAL_MIN_OBJECT_MOTION_DISTANCE = 0.05
+VISUAL_MAX_GRIPPER_OBJECT_DISTANCE = 0.04
+VISUAL_MIN_OBJECT_LIFT = 0.04
+VISUAL_MAX_STEP_OBJECT_DISPLACEMENT = 0.12
+VISUAL_MAX_NO_CONTACT_STEP_DISPLACEMENT = 0.04
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,9 @@ class FetchLoopConfig:
     resume_from: Path | None = None
     progress_bar: bool = False
     dry_run: bool = False
+    visual_approval_required: bool = False
+    visual_approval_timeout_seconds: float = 300.0
+    visual_approval_poll_interval_seconds: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -142,6 +164,9 @@ def build_fetch_loop_spec(config: FetchLoopConfig) -> dict[str, object]:
         "max_iterations": config.max_iterations,
         "resume_from": None if config.resume_from is None else str(config.resume_from),
         "progress_bar": config.progress_bar,
+        "visual_approval_required": config.visual_approval_required,
+        "visual_approval_timeout_seconds": config.visual_approval_timeout_seconds,
+        "visual_approval_poll_interval_seconds": config.visual_approval_poll_interval_seconds,
         "continue_until_success": config.max_iterations is None,
     }
 
@@ -172,7 +197,147 @@ def is_success_condition_met(eval_record: dict[str, object], *, video_path: Path
         ]
         if physical_entry_rates and any(float(value) < success_rate for value in physical_entry_rates):
             return False
-    return success_rate >= threshold and int(eval_record["episodes"]) > 0 and video_path.exists() and video_path.stat().st_size > 0
+    if not (
+        success_rate >= threshold
+        and int(eval_record["episodes"]) > 0
+        and video_path.exists()
+        and video_path.stat().st_size > 0
+    ):
+        return False
+    if bool(eval_record.get("visual_approval_required", False)):
+        if not _visual_trajectory_gate(eval_record):
+            return False
+        marker_value = eval_record.get("visual_approval_marker")
+        marker_path = Path(str(marker_value)) if marker_value else _visual_approval_marker_path(video_path)
+        if not marker_path.exists():
+            return False
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return False
+        if not _visual_approval_marker_is_valid(marker, video_path=video_path, eval_record=eval_record):
+            return False
+    return True
+
+
+def _visual_approval_marker_path(video_path: Path) -> Path:
+    return video_path.with_suffix(".approved.json")
+
+
+def _visual_approval_marker_is_valid(marker: object, *, video_path: Path, eval_record: dict[str, object]) -> bool:
+    if not isinstance(marker, dict):
+        return False
+    if marker.get("schema_version") != VISUAL_APPROVAL_SCHEMA_VERSION:
+        return False
+    if marker.get("approved") is not True:
+        return False
+    if not str(marker.get("reviewer", "")).strip():
+        return False
+    if not str(marker.get("tool", "")).strip():
+        return False
+    if str(marker.get("reviewed_gif_path", "")) != str(video_path):
+        return False
+    expected_hash = eval_record.get("visual_artifact_sha256")
+    if expected_hash is not None and marker.get("artifact_sha256") != str(expected_hash):
+        return False
+    if marker.get("artifact_sha256") != _file_sha256(video_path):
+        return False
+    criteria = marker.get("criteria")
+    if not isinstance(criteria, dict):
+        return False
+    for criterion in VISUAL_APPROVAL_CRITERIA:
+        result = criteria.get(criterion)
+        if not isinstance(result, dict):
+            return False
+        if criterion == "home_return" and not _return_home_required(eval_record):
+            if not isinstance(result.get("passed"), bool):
+                return False
+            if result.get("passed") is False and result.get("required") is not False:
+                return False
+            continue
+        if result.get("passed") is not True:
+            return False
+    return True
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _visual_trajectory_gate(eval_record: dict[str, object]) -> bool:
+    checks = (
+        ("video_initial_object_goal_distance", VISUAL_MIN_INITIAL_OBJECT_GOAL_DISTANCE, "min"),
+        ("video_object_motion_distance", VISUAL_MIN_OBJECT_MOTION_DISTANCE, "min"),
+        ("video_min_gripper_object_distance", VISUAL_MAX_GRIPPER_OBJECT_DISTANCE, "max"),
+        ("video_max_object_lift", VISUAL_MIN_OBJECT_LIFT, "min"),
+        ("video_max_step_object_displacement", VISUAL_MAX_STEP_OBJECT_DISPLACEMENT, "max"),
+        (
+            "video_max_step_object_displacement_without_contact",
+            VISUAL_MAX_NO_CONTACT_STEP_DISPLACEMENT,
+            "max",
+        ),
+    )
+    for key, threshold, mode in checks:
+        value = eval_record.get(key)
+        if value is None:
+            return False
+        numeric_value = float(value)
+        if mode == "min" and numeric_value < threshold:
+            return False
+        if mode == "max" and numeric_value > threshold:
+            return False
+    if float(eval_record.get("video_episode_success", 0.0)) < 1.0:
+        return False
+    if _return_home_required(eval_record) and float(eval_record.get("video_place_return_success", 0.0)) < 1.0:
+        return False
+    return True
+
+
+def _return_home_required(eval_record: dict[str, object]) -> bool:
+    stage_env_id = str(eval_record.get("curriculum_stage_env_id", ""))
+    if "ReturnHome" in stage_env_id:
+        return True
+    if eval_record.get("place_return_success_rate") is not None:
+        return bool(eval_record.get("visual_require_home_return", False))
+    return False
+
+
+def _wait_for_visual_approval(
+    eval_record: dict[str, object],
+    *,
+    video_path: Path,
+    threshold: float,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+    monotonic: object = time.monotonic,
+    sleep: object = time.sleep,
+) -> bool:
+    eval_record["visual_approval_status"] = "pending"
+    if not _visual_ready_for_approval(eval_record, video_path=video_path, threshold=threshold):
+        eval_record["visual_approval_status"] = "not_ready"
+        return False
+    eval_record.setdefault("visual_artifact_sha256", _file_sha256(video_path))
+    deadline = float(monotonic()) + max(0.0, float(timeout_seconds))
+    poll_interval = max(0.0, float(poll_interval_seconds))
+    while True:
+        if is_success_condition_met(eval_record, video_path=video_path, threshold=threshold):
+            eval_record["visual_approval_status"] = "approved"
+            return True
+        if float(monotonic()) >= deadline:
+            eval_record["visual_approval_status"] = "pending"
+            return False
+        sleep(min(poll_interval, max(0.0, deadline - float(monotonic()))))
+
+
+def _visual_ready_for_approval(eval_record: dict[str, object], *, video_path: Path, threshold: float) -> bool:
+    if not bool(eval_record.get("visual_approval_required", False)):
+        return False
+    visual_required = dict(eval_record)
+    visual_required["visual_approval_required"] = False
+    return (
+        is_success_condition_met(visual_required, video_path=video_path, threshold=threshold)
+        and _visual_trajectory_gate(eval_record)
+    )
 
 
 def curriculum_stage_env_ids(config: FetchLoopConfig) -> tuple[str, ...]:
@@ -509,8 +674,26 @@ def _run_fetch_loop_with_dependencies(config: FetchLoopConfig, spec_path: Path, 
             eval_record["curriculum_stage_index"] = stage_index
             eval_record["curriculum_stage_count"] = len(stage_env_ids)
             eval_record["curriculum_stage_env_id"] = current_env_id
+            eval_record["visual_approval_required"] = config.visual_approval_required
+            if config.visual_approval_required:
+                eval_record["visual_approval_marker"] = str(_visual_approval_marker_path(last_video_path))
+                eval_record["visual_artifact_sha256"] = _file_sha256(last_video_path)
+                eval_record["visual_approval_status"] = "pending"
             eval_records.append(eval_record)
             _write_eval_records(eval_path, eval_records)
+            if config.visual_approval_required and _visual_ready_for_approval(
+                eval_record,
+                video_path=last_video_path,
+                threshold=config.success_threshold,
+            ):
+                _wait_for_visual_approval(
+                    eval_record,
+                    video_path=last_video_path,
+                    threshold=config.success_threshold,
+                    timeout_seconds=config.visual_approval_timeout_seconds,
+                    poll_interval_seconds=config.visual_approval_poll_interval_seconds,
+                )
+                _write_eval_records(eval_path, eval_records)
             stage_success = is_success_condition_met(
                 eval_record,
                 video_path=last_video_path,
@@ -590,9 +773,20 @@ def _evaluate_fetch_model(
     object1_valid_box_entries = []
     success_requires_valid_box_entries = []
     required_object_names: list[str] | None = None
-    frames = []
+    video_frames = []
+    video_episode_index: int | None = None
+    video_episode_success = 0.0
+    video_initial_object_goal_distance: float | None = None
+    video_object_motion_distance: float | None = None
+    video_min_gripper_object_distance: float | None = None
+    video_max_object_lift: float | None = None
+    video_max_step_object_displacement: float | None = None
+    video_max_step_object_displacement_without_contact: float | None = None
+    video_place_return_success: float | None = None
+    video_return_home_success: float | None = None
+    successful_video_recorded = False
     for episode in range(episodes):
-        render_mode = "rgb_array" if episode == 0 else None
+        render_mode = "rgb_array" if not successful_video_recorded else None
         register_robotrl_fetch_envs()
         env = gym.make(env_id, render_mode=render_mode)
         obs, _info = env.reset(seed=seed + episode)
@@ -601,8 +795,15 @@ def _evaluate_fetch_model(
         final_info: dict[str, object] = {}
         min_gripper_object_distance = float("inf")
         max_object_lift = 0.0
+        episode_frames = []
+        initial_object_goal_distance = _initial_object_goal_distance(obs)
+        initial_object_position = _achieved_goal_array(obs)
+        previous_object_position = initial_object_position
+        max_object_motion_distance = 0.0
+        max_step_object_displacement = 0.0
+        max_step_object_displacement_without_contact = 0.0
         if render_mode:
-            frames.append(env.render())
+            episode_frames.append(env.render())
         while not done:
             action, _state = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
@@ -616,10 +817,45 @@ def _evaluate_fetch_model(
                 )
             if "object_lift" in final_info:
                 max_object_lift = max(max_object_lift, float(final_info["object_lift"]))
+            object_position = _achieved_goal_array(obs)
+            if initial_object_position is not None and object_position is not None:
+                max_object_motion_distance = max(
+                    max_object_motion_distance,
+                    float(np.linalg.norm(object_position - initial_object_position)),
+                )
+            if previous_object_position is not None and object_position is not None:
+                step_displacement = float(np.linalg.norm(object_position - previous_object_position))
+                max_step_object_displacement = max(max_step_object_displacement, step_displacement)
+                gripper_distance = final_info.get("gripper_object_distance")
+                if gripper_distance is None or float(gripper_distance) > VISUAL_MAX_GRIPPER_OBJECT_DISTANCE:
+                    max_step_object_displacement_without_contact = max(
+                        max_step_object_displacement_without_contact,
+                        step_displacement,
+                    )
+            previous_object_position = object_position
             if render_mode:
-                frames.append(env.render())
+                episode_frames.append(env.render())
         env.close()
-        successes.append(float(final_info.get("is_success", 0.0)))
+        episode_success = float(final_info.get("is_success", 0.0))
+        if render_mode and (not video_frames or episode_success >= 1.0):
+            video_frames = episode_frames
+            video_episode_index = episode
+            video_episode_success = episode_success
+            video_initial_object_goal_distance = initial_object_goal_distance
+            video_object_motion_distance = max_object_motion_distance
+            video_min_gripper_object_distance = (
+                None
+                if min_gripper_object_distance == float("inf")
+                else min_gripper_object_distance
+            )
+            video_max_object_lift = max_object_lift
+            video_max_step_object_displacement = max_step_object_displacement
+            video_max_step_object_displacement_without_contact = max_step_object_displacement_without_contact
+            video_place_return_success = _optional_float(final_info.get("place_return_success"))
+            video_return_home_success = _optional_float(final_info.get("return_home_success"))
+            if episode_success >= 1.0:
+                successful_video_recorded = True
+        successes.append(episode_success)
         rewards.append(total_reward)
         if "object_goal_distance" in final_info:
             final_object_goal_distances.append(float(final_info["object_goal_distance"]))
@@ -660,8 +896,8 @@ def _evaluate_fetch_model(
         max_object_lifts.append(max_object_lift)
 
     video_path.parent.mkdir(parents=True, exist_ok=True)
-    if frames:
-        imageio.mimsave(video_path, frames, duration=120, loop=0)
+    if video_frames:
+        imageio.mimsave(video_path, video_frames, duration=120, loop=0)
     return {
         "iteration": iteration,
         "total_timesteps": total_timesteps,
@@ -685,8 +921,51 @@ def _evaluate_fetch_model(
         "object1_valid_box_entry_rate": _rounded_mean(object1_valid_box_entries),
         "success_requires_valid_box_entry_rate": _rounded_mean(success_requires_valid_box_entries),
         "required_object_names": required_object_names,
+        "video_episode_index": video_episode_index,
+        "video_episode_success": video_episode_success,
+        "video_initial_object_goal_distance": (
+            None
+            if video_initial_object_goal_distance is None
+            else round(video_initial_object_goal_distance, 4)
+        ),
+        "video_object_motion_distance": _rounded_optional(video_object_motion_distance),
+        "video_min_gripper_object_distance": _rounded_optional(video_min_gripper_object_distance),
+        "video_max_object_lift": _rounded_optional(video_max_object_lift),
+        "video_max_step_object_displacement": _rounded_optional(video_max_step_object_displacement),
+        "video_max_step_object_displacement_without_contact": _rounded_optional(
+            video_max_step_object_displacement_without_contact
+        ),
+        "video_place_return_success": video_place_return_success,
+        "video_return_home_success": video_return_home_success,
         "video": str(video_path),
     }
+
+
+def _initial_object_goal_distance(obs: dict[str, object]) -> float | None:
+    achieved_goal = obs.get("achieved_goal")
+    desired_goal = obs.get("desired_goal")
+    if achieved_goal is None or desired_goal is None:
+        return None
+    return float(np.linalg.norm(np.asarray(achieved_goal) - np.asarray(desired_goal)))
+
+
+def _achieved_goal_array(obs: dict[str, object]) -> np.ndarray | None:
+    achieved_goal = obs.get("achieved_goal")
+    if achieved_goal is None:
+        return None
+    return np.asarray(achieved_goal, dtype=np.float64)
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    return float(value)
+
+
+def _rounded_optional(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(value, 4)
 
 
 def _rounded_mean(values: list[float]) -> float | None:

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -452,6 +453,9 @@ class FetchTrainingConfigTest(unittest.TestCase):
             spec = json.loads((Path(tmp) / "fetch_loop_spec.json").read_text(encoding="utf-8"))
             self.assertEqual(spec["env_id"], FETCH_BOX_PLACE_BASIC_RANDOM_NARROW_ENV_ID)
             self.assertEqual(spec["replay_buffer"], "DictReplayBuffer")
+            self.assertTrue(spec["visual_approval_required"])
+            self.assertEqual(spec["visual_approval_timeout_seconds"], 300.0)
+            self.assertEqual(spec["visual_approval_poll_interval_seconds"], 5.0)
             self.assertEqual(
                 spec["curriculum_stage_env_ids"],
                 [
@@ -935,6 +939,327 @@ class FetchTrainingConfigTest(unittest.TestCase):
                 )
             )
 
+    def test_success_condition_requires_visual_approval_marker_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "stage_05_iteration_043_rollout.gif"
+            marker_path = Path(tmp) / "stage_05_iteration_043_rollout.approved.json"
+            video_bytes = b"GIF89a"
+            video_path.write_bytes(video_bytes)
+            eval_record = {
+                "success_rate": 0.95,
+                "episodes": 20,
+                "video_episode_success": 1.0,
+                "video_initial_object_goal_distance": 0.2,
+                "video_object_motion_distance": 0.18,
+                "video_min_gripper_object_distance": 0.02,
+                "video_max_object_lift": 0.1,
+                "video_max_step_object_displacement": 0.02,
+                "video_max_step_object_displacement_without_contact": 0.0,
+                "video_place_return_success": 1.0,
+                "video_return_home_success": 1.0,
+                "visual_approval_required": True,
+                "visual_approval_marker": str(marker_path),
+            }
+
+            self.assertFalse(
+                is_success_condition_met(
+                    eval_record,
+                    video_path=video_path,
+                    threshold=0.8,
+                )
+            )
+
+            marker_path.write_text(json.dumps({"approved": True}), encoding="utf-8")
+            self.assertFalse(
+                is_success_condition_met(
+                    eval_record,
+                    video_path=video_path,
+                    threshold=0.8,
+                )
+            )
+
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "approved": True,
+                        "reviewer": "verifier",
+                        "tool": "contact-sheet-review",
+                        "reviewed_gif_path": str(video_path),
+                        "artifact_sha256": hashlib.sha256(video_bytes).hexdigest(),
+                        "criteria": {
+                            "approach": {"passed": True},
+                            "stable_contact_or_grasp": {"passed": True},
+                            "lift_or_carry": {"passed": True},
+                            "collidable_box_placement": {"passed": True},
+                            "home_return": {"passed": True},
+                            "no_penetration_sliding_or_teleport": {"passed": True},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(
+                is_success_condition_met(
+                    eval_record,
+                    video_path=video_path,
+                    threshold=0.8,
+                )
+            )
+
+    def test_visual_approval_rejects_artifact_hash_and_failed_criteria_mismatches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "rollout.gif"
+            marker_path = Path(tmp) / "rollout.approved.json"
+            video_path.write_bytes(b"GIF89a")
+            eval_record = {
+                "success_rate": 1.0,
+                "episodes": 1,
+                "video_episode_success": 1.0,
+                "video_initial_object_goal_distance": 0.2,
+                "video_object_motion_distance": 0.18,
+                "video_min_gripper_object_distance": 0.02,
+                "video_max_object_lift": 0.1,
+                "video_place_return_success": 1.0,
+                "video_return_home_success": 1.0,
+                "visual_approval_required": True,
+                "visual_approval_marker": str(marker_path),
+            }
+            marker = {
+                "schema_version": 1,
+                "approved": True,
+                "reviewer": "verifier",
+                "tool": "contact-sheet-review",
+                "reviewed_gif_path": str(video_path),
+                "artifact_sha256": "bad-hash",
+                "criteria": {
+                    "approach": {"passed": True},
+                    "stable_contact_or_grasp": {"passed": True},
+                    "lift_or_carry": {"passed": True},
+                    "collidable_box_placement": {"passed": True},
+                    "home_return": {"passed": True},
+                    "no_penetration_sliding_or_teleport": {"passed": True},
+                },
+            }
+            marker_path.write_text(json.dumps(marker), encoding="utf-8")
+            self.assertFalse(is_success_condition_met(eval_record, video_path=video_path, threshold=0.8))
+
+            marker["artifact_sha256"] = hashlib.sha256(video_path.read_bytes()).hexdigest()
+            marker["criteria"]["lift_or_carry"]["passed"] = False
+            marker_path.write_text(json.dumps(marker), encoding="utf-8")
+            self.assertFalse(is_success_condition_met(eval_record, video_path=video_path, threshold=0.8))
+
+    def test_visual_gate_rejects_weak_single_object_trajectory_diagnostics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "rollout.gif"
+            marker_path = Path(tmp) / "rollout.approved.json"
+            video_bytes = b"GIF89a"
+            video_path.write_bytes(video_bytes)
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "approved": True,
+                        "reviewer": "verifier",
+                        "tool": "contact-sheet-review",
+                        "reviewed_gif_path": str(video_path),
+                        "artifact_sha256": hashlib.sha256(video_bytes).hexdigest(),
+                        "criteria": {
+                            "approach": {"passed": True},
+                            "stable_contact_or_grasp": {"passed": True},
+                            "lift_or_carry": {"passed": True},
+                            "collidable_box_placement": {"passed": True},
+                            "home_return": {"passed": True},
+                            "no_penetration_sliding_or_teleport": {"passed": True},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            weak_record = {
+                "success_rate": 1.0,
+                "episodes": 1,
+                "video_episode_success": 1.0,
+                "video_initial_object_goal_distance": 0.01,
+                "video_object_motion_distance": 0.0,
+                "video_min_gripper_object_distance": 0.08,
+                "video_max_object_lift": 0.0,
+                "video_max_step_object_displacement": 0.0,
+                "video_max_step_object_displacement_without_contact": 0.0,
+                "video_place_return_success": 1.0,
+                "video_return_home_success": 1.0,
+                "visual_approval_required": True,
+                "visual_approval_marker": str(marker_path),
+            }
+
+            self.assertFalse(is_success_condition_met(weak_record, video_path=video_path, threshold=0.8))
+
+    def test_visual_approval_wait_polls_same_gif_hash_before_accepting_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "rollout.gif"
+            marker_path = Path(tmp) / "rollout.approved.json"
+            video_bytes = b"GIF89a"
+            video_path.write_bytes(video_bytes)
+            eval_record = {
+                "success_rate": 1.0,
+                "episodes": 1,
+                "video_episode_success": 1.0,
+                "video_initial_object_goal_distance": 0.2,
+                "video_object_motion_distance": 0.18,
+                "video_min_gripper_object_distance": 0.02,
+                "video_max_object_lift": 0.1,
+                "video_max_step_object_displacement": 0.02,
+                "video_max_step_object_displacement_without_contact": 0.0,
+                "video_place_return_success": 1.0,
+                "video_return_home_success": 1.0,
+                "visual_approval_required": True,
+                "visual_approval_marker": str(marker_path),
+            }
+            ticks = [0.0]
+
+            def fake_monotonic():
+                return ticks[0]
+
+            def fake_sleep(seconds):
+                marker_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "approved": True,
+                            "reviewer": "verifier",
+                            "tool": "contact-sheet-review",
+                            "reviewed_gif_path": str(video_path),
+                            "artifact_sha256": hashlib.sha256(video_bytes).hexdigest(),
+                            "criteria": {
+                                "approach": {"passed": True},
+                                "stable_contact_or_grasp": {"passed": True},
+                                "lift_or_carry": {"passed": True},
+                                "collidable_box_placement": {"passed": True},
+                                "home_return": {"passed": True},
+                                "no_penetration_sliding_or_teleport": {"passed": True},
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                ticks[0] += seconds
+
+            self.assertTrue(
+                fetch_training._wait_for_visual_approval(
+                    eval_record,
+                    video_path=video_path,
+                    threshold=0.8,
+                    timeout_seconds=0.2,
+                    poll_interval_seconds=0.1,
+                    monotonic=fake_monotonic,
+                    sleep=fake_sleep,
+                )
+            )
+            self.assertEqual(eval_record["visual_approval_status"], "approved")
+
+    def test_visual_approval_wait_rejects_marker_when_gif_hash_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "rollout.gif"
+            marker_path = Path(tmp) / "rollout.approved.json"
+            original_bytes = b"GIF89a"
+            video_path.write_bytes(original_bytes)
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "approved": True,
+                        "reviewer": "verifier",
+                        "tool": "contact-sheet-review",
+                        "reviewed_gif_path": str(video_path),
+                        "artifact_sha256": hashlib.sha256(original_bytes).hexdigest(),
+                        "criteria": {
+                            "approach": {"passed": True},
+                            "stable_contact_or_grasp": {"passed": True},
+                            "lift_or_carry": {"passed": True},
+                            "collidable_box_placement": {"passed": True},
+                            "home_return": {"passed": True},
+                            "no_penetration_sliding_or_teleport": {"passed": True},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            video_path.write_bytes(b"changed-gif")
+            eval_record = {
+                "success_rate": 1.0,
+                "episodes": 1,
+                "video_episode_success": 1.0,
+                "video_initial_object_goal_distance": 0.2,
+                "video_object_motion_distance": 0.18,
+                "video_min_gripper_object_distance": 0.02,
+                "video_max_object_lift": 0.1,
+                "video_max_step_object_displacement": 0.02,
+                "video_max_step_object_displacement_without_contact": 0.0,
+                "video_place_return_success": 1.0,
+                "video_return_home_success": 1.0,
+                "visual_approval_required": True,
+                "visual_approval_marker": str(marker_path),
+            }
+
+            self.assertFalse(
+                fetch_training._wait_for_visual_approval(
+                    eval_record,
+                    video_path=video_path,
+                    threshold=0.8,
+                    timeout_seconds=0.0,
+                    poll_interval_seconds=0.1,
+                    monotonic=lambda: 0.0,
+                    sleep=lambda seconds: None,
+                )
+            )
+            self.assertEqual(eval_record["visual_approval_status"], "pending")
+
+    def test_visual_gate_rejects_large_no_contact_step_displacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video_path = Path(tmp) / "rollout.gif"
+            marker_path = Path(tmp) / "rollout.approved.json"
+            video_bytes = b"GIF89a"
+            video_path.write_bytes(video_bytes)
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "approved": True,
+                        "reviewer": "verifier",
+                        "tool": "contact-sheet-review",
+                        "reviewed_gif_path": str(video_path),
+                        "artifact_sha256": hashlib.sha256(video_bytes).hexdigest(),
+                        "criteria": {
+                            "approach": {"passed": True},
+                            "stable_contact_or_grasp": {"passed": True},
+                            "lift_or_carry": {"passed": True},
+                            "collidable_box_placement": {"passed": True},
+                            "home_return": {"passed": True},
+                            "no_penetration_sliding_or_teleport": {"passed": True},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            eval_record = {
+                "success_rate": 1.0,
+                "episodes": 1,
+                "video_episode_success": 1.0,
+                "video_initial_object_goal_distance": 0.2,
+                "video_object_motion_distance": 0.18,
+                "video_min_gripper_object_distance": 0.02,
+                "video_max_object_lift": 0.1,
+                "video_max_step_object_displacement": 0.02,
+                "video_max_step_object_displacement_without_contact": 0.08,
+                "video_place_return_success": 1.0,
+                "video_return_home_success": 1.0,
+                "visual_approval_required": True,
+                "visual_approval_marker": str(marker_path),
+            }
+
+            self.assertFalse(is_success_condition_met(eval_record, video_path=video_path, threshold=0.8))
+
     def test_success_condition_rejects_success_without_object1_valid_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             video_path = Path(tmp) / "rollout.gif"
@@ -1061,6 +1386,94 @@ class FetchTrainingConfigTest(unittest.TestCase):
         self.assertEqual(record["mean_home_distance"], 0.1)
         self.assertEqual(record["return_home_success_rate"], 0.5)
         self.assertEqual(record["place_return_success_rate"], 0.5)
+
+    def test_eval_video_records_first_successful_episode_instead_of_first_episode(self):
+        class FakeModel:
+            def predict(self, obs, deterministic=True):
+                return np.zeros(4, dtype=np.float32), None
+
+        class FakeEnv:
+            def __init__(self, episode_index, success):
+                self.episode_index = episode_index
+                self.success = success
+
+            def reset(self, seed=None):
+                return {
+                    "achieved_goal": np.array([0.0, 0.0, 0.0]),
+                    "desired_goal": np.array([0.2, 0.0, 0.0]),
+                    "observation": np.zeros(3),
+                }, {}
+
+            def step(self, action):
+                next_obs = {
+                    "achieved_goal": np.array([0.2, 0.0, 0.0]) if self.success else np.array([0.0, 0.0, 0.0]),
+                    "desired_goal": np.array([0.2, 0.0, 0.0]),
+                    "observation": np.zeros(3),
+                }
+                return (
+                    next_obs,
+                    1.0,
+                    True,
+                    False,
+                    {
+                        "is_success": self.success,
+                        "object_goal_distance": 0.02,
+                        "gripper_object_distance": 0.02,
+                        "object_lift": 0.08,
+                        "home_distance": 0.03,
+                        "return_home_success": self.success,
+                        "place_return_success": self.success,
+                    },
+                )
+
+            def render(self):
+                return np.full((2, 2, 3), self.episode_index, dtype=np.uint8)
+
+            def close(self):
+                pass
+
+        class FakeGym:
+            def __init__(self):
+                self.envs = [
+                    FakeEnv(episode_index=0, success=0.0),
+                    FakeEnv(episode_index=1, success=1.0),
+                ]
+
+            def make(self, env_id, render_mode=None):
+                return self.envs.pop(0)
+
+        class FakeImageio:
+            def __init__(self):
+                self.frames = None
+
+            def mimsave(self, video_path, frames, duration, loop):
+                self.frames = list(frames)
+                Path(video_path).write_bytes(b"GIF89a")
+
+        imageio = FakeImageio()
+        with tempfile.TemporaryDirectory() as tmp:
+            record = fetch_training._evaluate_fetch_model(
+                gym=FakeGym(),
+                imageio=imageio,
+                model=FakeModel(),
+                env_id=FETCH_BOX_PLACE_RETURN_HOME_ENV_ID,
+                seed=7,
+                episodes=2,
+                iteration=3,
+                total_timesteps=750_060,
+                video_path=Path(tmp) / "rollout.gif",
+            )
+
+        self.assertEqual(record["video_episode_index"], 1)
+        self.assertEqual(record["video_episode_success"], 1.0)
+        self.assertEqual(record["video_object_motion_distance"], 0.2)
+        self.assertEqual(record["video_min_gripper_object_distance"], 0.02)
+        self.assertEqual(record["video_max_object_lift"], 0.08)
+        self.assertEqual(record["video_max_step_object_displacement"], 0.2)
+        self.assertEqual(record["video_max_step_object_displacement_without_contact"], 0.0)
+        self.assertEqual(record["video_place_return_success"], 1.0)
+        self.assertEqual(record["video_return_home_success"], 1.0)
+        self.assertTrue(all(int(frame[0, 0, 0]) == 1 for frame in imageio.frames))
 
     def test_eval_summary_aggregates_multi_object_diagnostics(self):
         class FakeModel:

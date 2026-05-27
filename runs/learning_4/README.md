@@ -27,12 +27,40 @@ Each stage can advance only when both gates pass:
    - `success_rate >= 0.8` over the configured eval episodes.
    - The eval record has nonzero episodes and a rollout video/GIF artifact.
    - For return-home stages, diagnostics must show home return while final placement remains true.
-2. Video gate:
+2. Visual gate:
    - Review the latest rollout GIF/video before accepting the stage.
    - The visible behavior must show a real approach, grasp or stable contact, lift/carry, over-wall or physically valid placement path, release/settle in the box, and home return when required.
    - Reject scalar success if the object or arm passes through the box, tray, shelf, or table, if the object slides/teleports into success, or if success is credited without a stable physical pick-and-place.
 
 If the numeric gate is met but video has not been reviewed, r30o must classify the state as `아직 애매함` and hold the stage. It should report the exact video path that needs inspection instead of advancing or changing code.
+
+For `single-random-to-return` runs, the loop enforces the visual gate directly:
+
+- Eval records must pass trajectory diagnostics for the selected video episode: object starts outside the target zone, object moves materially, gripper gets close to the object, object lifts/carries, the selected episode succeeds, and return-home stages preserve place-return success.
+- Eval records expose `video_episode_index`, `video_episode_success`, `video_initial_object_goal_distance`, `video_object_motion_distance`, `video_min_gripper_object_distance`, `video_max_object_lift`, `video_place_return_success`, and `video_return_home_success`.
+- The loop waits for a sibling approval marker for the exact GIF hash before it advances or completes a stage.
+- Approval marker path: same stem as the GIF with `.approved.json`, for example `stage_05_iteration_043_rollout.approved.json`.
+
+Approval marker schema:
+
+```json
+{
+  "schema_version": 1,
+  "approved": true,
+  "reviewer": "r30o-orchestrator",
+  "tool": "visual-review",
+  "reviewed_gif_path": "runs\\learning_4\\...\\stage_05_iteration_043_rollout.gif",
+  "artifact_sha256": "<sha256 of reviewed GIF>",
+  "criteria": {
+    "approach": {"passed": true},
+    "stable_contact_or_grasp": {"passed": true},
+    "lift_or_carry": {"passed": true},
+    "collidable_box_placement": {"passed": true},
+    "home_return": {"passed": true},
+    "no_penetration_sliding_or_teleport": {"passed": true}
+  }
+}
+```
 
 ## R30O Judgment
 
@@ -44,7 +72,7 @@ Every r30o run judges first and classifies exactly one state:
 
 For `진전 있음` or `아직 애매함`, r30o must not modify code. For `명백히 아님`, r30o uses executor/coding and verifier/evaluation subagents and only accepts a correction when verifier score is greater than 90.
 
-## Active Run
+## Active Runs
 
 ### run_001_single_object_random_generalization_seed7
 
@@ -56,6 +84,20 @@ python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-ti
 
 Notes:
 
-- This run starts from scratch to avoid carrying fixed-coordinate behavior from earlier single-object and two-object lanes.
-- The first useful signal is stable success in `RobotRLFetchBoxPlaceBasicRandomNarrow-v0` with rollout video showing a real physical pick-and-place from more than one sampled start position.
-- The next learning direction after Stage 4 is two random objects, not fixed object slots.
+- This run started from scratch to avoid carrying fixed-coordinate behavior from earlier single-object and two-object lanes.
+- Final scalar metrics passed at iteration 43, but visual review rejected the artifact as insufficient because the GIF did not clearly prove the full approach, grasp/contact, lift/carry, placement, and home-return sequence.
+- This run is not accepted as final learning_4 completion.
+
+### run_002_single_object_random_generalization_visual_gate_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_002_single_object_random_generalization_visual_gate_seed7
+```
+
+Notes:
+
+- This run restarts the same random generalization lane with enforced visual approval and selected-video trajectory diagnostics.
+- r30o should inspect any pending GIF, create the approval marker only when the checklist is actually true, and let the same running loop advance after the marker is detected.
+- The next learning direction after a valid Stage 4 completion is two random objects, not fixed object slots.
