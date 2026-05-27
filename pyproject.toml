@@ -1,0 +1,20 @@
+[project]
+name = "robotrl"
+version = "0.1.0"
+description = "Dependency-light multi-agent learning harness for RobotRL."
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+fetch = [
+  "gymnasium>=1.2,<1.4",
+  "gymnasium-robotics>=1.4.2,<2.0",
+  "mujoco>=3.8.1,<4.0",
+  "stable-baselines3>=2.3,<3.0",
+  "tensorboard>=2.20,<3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["robotrl*"]

@@ -1,0 +1,28 @@
+{
+  "box_center_xy": [
+    1.42,
+    0.75
+  ],
+  "box_half_size_m": 0.035,
+  "box_target_center": [
+    1.42,
+    0.75,
+    0.4248922232488584
+  ],
+  "env_id": "RobotRLFetchBoxPlace-v0",
+  "height_tolerance_m": 0.03,
+  "object_position": [
+    1.379462340702218,
+    0.8682651809108645,
+    0.42489222470145815
+  ],
+  "robot_grip_site": [
+    1.3419334014385302,
+    0.7491010367151401,
+    0.5347334472699075
+  ],
+  "success_4cm_x_offset": 0.0,
+  "success_4cm_z_offset": 0.0,
+  "success_at_goal": 1.0,
+  "target_in_the_air": false
+}

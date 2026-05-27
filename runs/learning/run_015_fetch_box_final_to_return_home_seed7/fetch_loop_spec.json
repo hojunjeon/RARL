@@ -1,0 +1,28 @@
+{
+  "algorithm": "SAC",
+  "batch_size": 256,
+  "buffer_size": 1000000,
+  "checkpoint_interval": 50000,
+  "chunk_timesteps": 50000,
+  "continue_until_success": true,
+  "curriculum_stage_env_ids": [
+    "RobotRLFetchBoxPlaceRightCurriculum-v0",
+    "RobotRLFetchBoxPlaceReturnHome-v0"
+  ],
+  "env_id": "RobotRLFetchBoxPlaceRightCurriculum-v0",
+  "eval_episodes": 20,
+  "final_stage_env_id": "RobotRLFetchBoxPlaceReturnHome-v0",
+  "gamma": 0.95,
+  "initial_stage_env_id": "RobotRLFetchBoxPlaceRightCurriculum-v0",
+  "initial_stage_index": 0,
+  "learning_rate": 0.001,
+  "learning_starts": 10000,
+  "max_iterations": null,
+  "n_envs": 6,
+  "policy": "MultiInputPolicy",
+  "progress_bar": false,
+  "replay_buffer": "DictReplayBuffer",
+  "resume_from": "runs\\learning\\run_014_fetch_box_basic_to_final_curriculum_seed7\\success_model.zip",
+  "seed": 7,
+  "success_threshold": 0.8
+}

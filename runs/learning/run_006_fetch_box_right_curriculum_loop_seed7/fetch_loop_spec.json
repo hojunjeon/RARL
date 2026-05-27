@@ -1,0 +1,20 @@
+{
+  "algorithm": "SAC",
+  "batch_size": 256,
+  "buffer_size": 1000000,
+  "checkpoint_interval": 50000,
+  "chunk_timesteps": 50000,
+  "continue_until_success": true,
+  "env_id": "RobotRLFetchBoxPlaceRightCurriculum-v0",
+  "eval_episodes": 20,
+  "gamma": 0.95,
+  "learning_rate": 0.001,
+  "learning_starts": 10000,
+  "max_iterations": null,
+  "n_envs": 6,
+  "policy": "MultiInputPolicy",
+  "progress_bar": false,
+  "replay_buffer": "HerReplayBuffer",
+  "seed": 7,
+  "success_threshold": 0.8
+}

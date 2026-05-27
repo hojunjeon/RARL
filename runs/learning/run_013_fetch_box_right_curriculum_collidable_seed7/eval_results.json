@@ -1,0 +1,24 @@
+[
+  {
+    "episodes": 20,
+    "iteration": 1,
+    "mean_final_object_goal_distance": 0.2018,
+    "mean_max_object_lift": 0.0,
+    "mean_min_gripper_object_distance": 0.1003,
+    "mean_reward": -73.0024,
+    "success_rate": 0.0,
+    "total_timesteps": 50004,
+    "video": "runs\\learning\\run_013_fetch_box_right_curriculum_collidable_seed7\\videos\\iteration_001_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 2,
+    "mean_final_object_goal_distance": 0.1699,
+    "mean_max_object_lift": 0.0132,
+    "mean_min_gripper_object_distance": 0.0628,
+    "mean_reward": -67.1121,
+    "success_rate": 0.0,
+    "total_timesteps": 100008,
+    "video": "runs\\learning\\run_013_fetch_box_right_curriculum_collidable_seed7\\videos\\iteration_002_rollout.gif"
+  }
+]

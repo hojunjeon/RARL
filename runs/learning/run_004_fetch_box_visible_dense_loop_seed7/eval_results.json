@@ -1,0 +1,106 @@
+[
+  {
+    "episodes": 20,
+    "iteration": 1,
+    "mean_reward": -8.0281,
+    "success_rate": 0.0,
+    "total_timesteps": 50004,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_001_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 2,
+    "mean_reward": -7.8353,
+    "success_rate": 0.0,
+    "total_timesteps": 100008,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_002_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 3,
+    "mean_reward": -8.186,
+    "success_rate": 0.0,
+    "total_timesteps": 150012,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_003_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 4,
+    "mean_reward": -8.4257,
+    "success_rate": 0.0,
+    "total_timesteps": 200016,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_004_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 5,
+    "mean_reward": -8.2956,
+    "success_rate": 0.0,
+    "total_timesteps": 250020,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_005_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 6,
+    "mean_reward": -8.2419,
+    "success_rate": 0.0,
+    "total_timesteps": 300024,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_006_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 7,
+    "mean_reward": -8.1833,
+    "success_rate": 0.0,
+    "total_timesteps": 350028,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_007_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 8,
+    "mean_reward": -8.6954,
+    "success_rate": 0.0,
+    "total_timesteps": 400032,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_008_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 9,
+    "mean_reward": -8.8131,
+    "success_rate": 0.0,
+    "total_timesteps": 450036,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_009_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 10,
+    "mean_reward": -8.7419,
+    "success_rate": 0.0,
+    "total_timesteps": 500040,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_010_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 11,
+    "mean_reward": -9.0173,
+    "success_rate": 0.0,
+    "total_timesteps": 550044,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_011_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 12,
+    "mean_reward": -9.8488,
+    "success_rate": 0.0,
+    "total_timesteps": 600048,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_012_rollout.gif"
+  },
+  {
+    "episodes": 20,
+    "iteration": 13,
+    "mean_reward": -8.994,
+    "success_rate": 0.0,
+    "total_timesteps": 650052,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_visible_dense_loop_seed7\\videos\\iteration_013_rollout.gif"
+  }
+]

@@ -1,0 +1,63 @@
+[
+  {
+    "all_objects_in_box_rate": 0.0,
+    "curriculum_stage_count": 5,
+    "curriculum_stage_env_id": "RobotRLFetchBoxPlaceTwoSequentialOverWallObject0BasicCued-v0",
+    "curriculum_stage_index": 0,
+    "episodes": 20,
+    "iteration": 1,
+    "mean_final_object_goal_distance": 0.0497,
+    "mean_home_distance": 0.0872,
+    "mean_max_object_lift": 0.1289,
+    "mean_min_gripper_object_distance": 0.0222,
+    "mean_objects_in_box_count": 1.0,
+    "mean_reward": 945.487,
+    "mean_valid_box_entry_count": 1.0,
+    "multi_place_return_success_rate": 0.2,
+    "object0_in_box_rate": 1.0,
+    "object0_valid_box_entry_rate": 1.0,
+    "object1_in_box_rate": 0.0,
+    "object1_valid_box_entry_rate": 0.0,
+    "object_count": 2,
+    "place_return_success_rate": 0.0,
+    "required_object_names": [
+      "object0"
+    ],
+    "return_home_success_rate": 0.2,
+    "success_rate": 1.0,
+    "success_requires_valid_box_entry_rate": 1.0,
+    "total_timesteps": 3550284,
+    "video": "runs\\learning_3\\run_006_multi_object_2_object1_lift_stage_seed7\\videos\\stage_01_iteration_001_rollout.gif"
+  },
+  {
+    "all_objects_in_box_rate": 0.0,
+    "curriculum_stage_count": 5,
+    "curriculum_stage_env_id": "RobotRLFetchBoxPlaceTwoSequentialOverWallObject1LiftCued-v0",
+    "curriculum_stage_index": 1,
+    "episodes": 20,
+    "iteration": 2,
+    "mean_final_object_goal_distance": 0.0386,
+    "mean_home_distance": 0.4239,
+    "mean_max_object_lift": 0.0157,
+    "mean_min_gripper_object_distance": 0.0318,
+    "mean_objects_in_box_count": 0.9,
+    "mean_reward": 232.6453,
+    "mean_valid_box_entry_count": 1.0,
+    "multi_place_return_success_rate": 0.0,
+    "object0_in_box_rate": 0.9,
+    "object0_valid_box_entry_rate": 1.0,
+    "object1_in_box_rate": 0.0,
+    "object1_valid_box_entry_rate": 0.0,
+    "object_count": 2,
+    "place_return_success_rate": 0.0,
+    "required_object_names": [
+      "object0",
+      "object1"
+    ],
+    "return_home_success_rate": 0.0,
+    "success_rate": 0.0,
+    "success_requires_valid_box_entry_rate": 0.0,
+    "total_timesteps": 3600288,
+    "video": "runs\\learning_3\\run_006_multi_object_2_object1_lift_stage_seed7\\videos\\stage_02_iteration_002_rollout.gif"
+  }
+]

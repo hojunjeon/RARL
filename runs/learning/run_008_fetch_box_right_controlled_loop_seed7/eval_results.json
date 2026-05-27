@@ -1,0 +1,13 @@
+[
+  {
+    "episodes": 20,
+    "iteration": 1,
+    "mean_final_object_goal_distance": 0.293,
+    "mean_max_object_lift": 0.0175,
+    "mean_min_gripper_object_distance": 0.0132,
+    "mean_reward": -2.6922,
+    "success_rate": 0.0,
+    "total_timesteps": 50004,
+    "video": "C:\\Users\\SSAFY\\Desktop\\RobotRL\\runs\\fetch_box_right_controlled_loop_seed7\\videos\\iteration_001_rollout.gif"
+  }
+]

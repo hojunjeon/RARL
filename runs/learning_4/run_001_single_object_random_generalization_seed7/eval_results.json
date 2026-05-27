@@ -1,0 +1,30 @@
+[
+  {
+    "all_objects_in_box_rate": null,
+    "curriculum_stage_count": 5,
+    "curriculum_stage_env_id": "RobotRLFetchBoxPlaceBasicRandomNarrow-v0",
+    "curriculum_stage_index": 0,
+    "episodes": 20,
+    "iteration": 1,
+    "mean_final_object_goal_distance": 0.2018,
+    "mean_home_distance": 0.0644,
+    "mean_max_object_lift": 0.0,
+    "mean_min_gripper_object_distance": 0.1259,
+    "mean_objects_in_box_count": null,
+    "mean_reward": -71.6641,
+    "mean_valid_box_entry_count": null,
+    "multi_place_return_success_rate": null,
+    "object0_in_box_rate": null,
+    "object0_valid_box_entry_rate": null,
+    "object1_in_box_rate": null,
+    "object1_valid_box_entry_rate": null,
+    "object_count": null,
+    "place_return_success_rate": 0.0,
+    "required_object_names": null,
+    "return_home_success_rate": 0.3,
+    "success_rate": 0.0,
+    "success_requires_valid_box_entry_rate": null,
+    "total_timesteps": 50004,
+    "video": "runs\\learning_4\\run_001_single_object_random_generalization_seed7\\videos\\stage_01_iteration_001_rollout.gif"
+  }
+]

@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.omx/
+robotrl.egg-info/
+
+# Training outputs: keep lightweight README/spec/eval files, ignore bulky artifacts.
+runs/**/checkpoints/
+runs/**/videos/
+runs/**/tensorboard/
+runs/**/logs/
+runs/**/*.log
+runs/**/*.zip
+runs/**/*.mp4
+runs/**/*.gif
