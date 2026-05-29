@@ -39,8 +39,8 @@ FETCH_BOX_PLACE_TWO_SEQUENTIAL_OVER_WALL_RETURN_HOME_CUED_ENV_ID = (
 )
 FETCH_BOX_PLACE_MAX_EPISODE_STEPS = 100
 FETCH_BOX_PLACE_TWO_MAX_EPISODE_STEPS = 150
-RIGHT_BOX_CENTER_XY = (1.42, 0.58)
-CURRICULUM_OBJECT_START_XY = (1.31, 0.75)
+RIGHT_BOX_CENTER_XY = (1.42, 0.92)
+CURRICULUM_OBJECT_START_XY = (1.30, 0.75)
 TWO_OBJECT_START_XYS = ((1.27, 0.75), (1.35, 0.75))
 TWO_OBJECT_OVER_WALL_GOAL_OFFSETS_XY = ((0.0, 0.0), (0.0, 0.055))
 
@@ -86,6 +86,8 @@ class RobotRLFetchBoxPlaceEnv:
                 model_asset_name: str = "fetch_box_place.xml",
                 include_active_object_cue: bool = False,
                 require_over_wall_entry: bool = False,
+                require_release_for_success: bool = False,
+                release_withdraw_distance: float = 0.14,
                 required_object_names: tuple[str, ...] | None = None,
                 preplaced_valid_object_names: tuple[str, ...] = (),
                 over_wall_entry_height: float = 0.095,
@@ -114,6 +116,8 @@ class RobotRLFetchBoxPlaceEnv:
                 self.basic_height_tolerance = float(basic_height_tolerance)
                 self.object_start_range = float(object_start_range)
                 self.include_active_object_cue = bool(include_active_object_cue)
+                self.require_release_for_success = bool(require_release_for_success)
+                self.release_withdraw_distance = float(release_withdraw_distance)
                 self.object_start_center_xy = (
                     None if object_start_center_xy is None else np.array(object_start_center_xy, dtype=np.float64)
                 )
@@ -200,6 +204,8 @@ class RobotRLFetchBoxPlaceEnv:
                     model_asset_name=model_asset_name,
                     include_active_object_cue=include_active_object_cue,
                     require_over_wall_entry=require_over_wall_entry,
+                    require_release_for_success=require_release_for_success,
+                    release_withdraw_distance=release_withdraw_distance,
                     required_object_names=required_object_names,
                     preplaced_valid_object_names=preplaced_valid_object_names,
                     over_wall_entry_height=over_wall_entry_height,
@@ -333,9 +339,17 @@ class RobotRLFetchBoxPlaceEnv:
                 gripper_object_distance = float(np.linalg.norm(gripper_pos - object_pos))
                 object_lift = float(max(0.0, object_pos[2] - self.height_offset))
                 gripper_opening = float(np.mean(observation[9:11]))
+                gripper_goal_xy_distance = float(np.linalg.norm(gripper_pos[:2] - goal_pos[:2]))
                 inside_box = float(self._inside_box(object_pos, goal_pos, self.basic_box_half_size))
                 basic_success = float(self._basic_is_success(object_pos, goal_pos))
                 final_success = float(self._final_is_success(object_pos, goal_pos))
+                release_gate = float(
+                    gripper_object_distance >= 0.075
+                    and gripper_opening >= 0.025
+                    and gripper_goal_xy_distance >= self.release_withdraw_distance
+                )
+                basic_release_success = basic_success * release_gate
+                final_release_success = final_success * release_gate
                 home_distance = float(np.linalg.norm(gripper_pos - self.initial_gripper_xpos))
                 return_home_success = float(home_distance <= self.home_success_distance)
                 place_return_success = float(final_success and return_home_success and self._tray_collision_enabled())
@@ -348,9 +362,12 @@ class RobotRLFetchBoxPlaceEnv:
                     "gripper_object_distance": gripper_object_distance,
                     "object_lift": object_lift,
                     "gripper_opening": gripper_opening,
+                    "gripper_goal_xy_distance": gripper_goal_xy_distance,
                     "inside_box": inside_box,
                     "basic_success": basic_success,
                     "final_success": final_success,
+                    "basic_release_success": basic_release_success,
+                    "final_release_success": final_release_success,
                     "home_distance": home_distance,
                     "return_home_success": return_home_success,
                     "place_return_success": place_return_success,
@@ -380,19 +397,43 @@ class RobotRLFetchBoxPlaceEnv:
                 object_lift = diagnostics["object_lift"]
                 is_success = diagnostics["is_success"]
 
-                reach_reward = -0.35 * gripper_object_distance
-                place_reward = -2.4 * object_goal_distance - 1.4 * object_goal_xy_distance - 0.5 * object_height_error
-                grasp_bonus = 0.2 if gripper_object_distance < 0.055 else 0.0
+                near_object = max(0.0, 1.0 - gripper_object_distance / 0.12)
+                prelift_place_weight = 0.35 if object_lift < 0.025 and is_success == 0.0 else 1.0
+                reach_reward = -1.0 * gripper_object_distance
+                place_reward = prelift_place_weight * (
+                    -2.4 * object_goal_distance - 1.4 * object_goal_xy_distance - 0.5 * object_height_error
+                )
+                grasp_bonus = 0.45 * near_object
+                if gripper_object_distance < 0.055:
+                    grasp_bonus += 0.35
                 controlled_lift = min(object_lift / 0.08, 1.0)
-                lift_bonus = 0.6 * controlled_lift
+                lift_bonus = 1.25 * controlled_lift
+                if gripper_object_distance < 0.075:
+                    lift_bonus += 1.0 * controlled_lift
                 carry_height_bonus = 0.35 if 0.035 <= object_lift <= 0.11 else 0.0
                 under_lift_penalty = 0.0
                 if gripper_object_distance < 0.04 and object_goal_xy_distance > self.box_half_size * 2.0:
-                    under_lift_penalty = -0.35 * max(0.0, 0.04 - object_lift) / 0.04
+                    under_lift_penalty = -0.45 * max(0.0, 0.04 - object_lift) / 0.04
+                if object_lift < 0.025 and is_success == 0.0:
+                    under_lift_penalty -= 0.2 * near_object * max(0.0, 0.025 - object_lift) / 0.025
                 over_lift_penalty = -4.0 * max(0.0, object_lift - 0.12)
                 lower_near_tray_bonus = 0.4 * max(0.0, 1.0 - object_height_error / 0.08)
                 if object_goal_xy_distance > self.box_half_size * 2.0:
                     lower_near_tray_bonus *= 0.25
+                placed_for_release = diagnostics["basic_success"] if self.success_mode == "basic" else diagnostics["final_success"]
+                if self.success_mode in {"multi_basic", "multi_final", "multi_final_return_home"}:
+                    placed_for_release = diagnostics["all_required_objects_in_box"]
+                release_bonus = 0.0
+                post_place_contact_penalty = 0.0
+                if placed_for_release >= 1.0:
+                    gripper_opening = diagnostics["gripper_opening"]
+                    home_distance = diagnostics["home_distance"]
+                    release_distance = min(gripper_object_distance / 0.12, 1.0)
+                    release_opening = min(max(gripper_opening, 0.0) / 0.035, 1.0)
+                    home_progress = max(0.0, 1.0 - home_distance / 0.30)
+                    release_bonus = 1.25 * release_distance + 0.85 * release_opening + 0.75 * home_progress
+                    if gripper_object_distance < 0.055:
+                        post_place_contact_penalty = -1.4 * (1.0 - gripper_object_distance / 0.055)
                 tray_bonus = 4.0 * is_success
                 if self.success_mode == "final_return_home":
                     tray_bonus += compute_return_home_reward_component(diagnostics)
@@ -425,6 +466,8 @@ class RobotRLFetchBoxPlaceEnv:
                     + under_lift_penalty
                     + over_lift_penalty
                     + lower_near_tray_bonus
+                    + release_bonus
+                    + post_place_contact_penalty
                     + tray_bonus
                 )
 
@@ -482,6 +525,32 @@ class RobotRLFetchBoxPlaceEnv:
 
             def _geometric_is_success(self, achieved_goal: np.ndarray, desired_goal: np.ndarray) -> np.ndarray:
                 return self._final_is_success(achieved_goal, desired_goal)
+
+            def _release_success(
+                self,
+                achieved_goal: np.ndarray,
+                desired_goal: np.ndarray,
+                *,
+                placement_success: np.ndarray | float,
+            ) -> np.ndarray:
+                gripper_pos = self._utils.get_site_xpos(self.model, self.data, "robot0:grip")
+                robot_qpos, _robot_qvel = self._utils.robot_get_obs(
+                    self.model,
+                    self.data,
+                    self._model_names.joint_names,
+                )
+                gripper_opening = float(np.mean(robot_qpos[-2:]))
+                gripper_object_distance = np.linalg.norm(gripper_pos - np.asarray(achieved_goal), axis=-1)
+                gripper_goal_xy_distance = np.linalg.norm(gripper_pos[:2] - np.asarray(desired_goal)[..., :2], axis=-1)
+                released = np.logical_and(
+                    gripper_object_distance >= 0.075,
+                    gripper_opening >= 0.025,
+                )
+                withdrawn = gripper_goal_xy_distance >= self.release_withdraw_distance
+                return np.asarray(
+                    np.logical_and(np.logical_and(placement_success, released), withdrawn),
+                    dtype=np.float32,
+                )
 
             def _object_position(self, object_name: str) -> np.ndarray:
                 return self._utils.get_site_xpos(self.model, self.data, object_name).copy()
@@ -644,6 +713,12 @@ class RobotRLFetchBoxPlaceEnv:
             def _is_success(self, achieved_goal: np.ndarray, desired_goal: np.ndarray) -> np.ndarray:
                 if self.success_mode == "basic":
                     geometric_success = self._basic_is_success(achieved_goal, desired_goal)
+                    if self.require_release_for_success:
+                        geometric_success = self._release_success(
+                            achieved_goal,
+                            desired_goal,
+                            placement_success=geometric_success,
+                        )
                 elif self.success_mode == "final_return_home":
                     geometric_success = np.logical_and(
                         self._final_is_success(achieved_goal, desired_goal),
@@ -657,6 +732,12 @@ class RobotRLFetchBoxPlaceEnv:
                     geometric_success = self._multi_is_success()
                 else:
                     geometric_success = self._final_is_success(achieved_goal, desired_goal)
+                    if self.require_release_for_success:
+                        geometric_success = self._release_success(
+                            achieved_goal,
+                            desired_goal,
+                            placement_success=geometric_success,
+                        )
                 return np.logical_and(
                     geometric_success,
                     self._tray_collision_enabled(),
@@ -936,6 +1017,7 @@ def register_robotrl_fetch_envs() -> None:
             FETCH_BOX_PLACE_BASIC_RANDOM_NARROW_ENV_ID,
             {
                 "success_mode": "basic",
+                "require_release_for_success": True,
                 "basic_box_half_size": 0.065,
                 "basic_height_tolerance": 0.075,
                 "object_start_radius": 0.02,
@@ -945,6 +1027,7 @@ def register_robotrl_fetch_envs() -> None:
             FETCH_BOX_PLACE_BASIC_RANDOM_MEDIUM_ENV_ID,
             {
                 "success_mode": "basic",
+                "require_release_for_success": True,
                 "basic_box_half_size": 0.065,
                 "basic_height_tolerance": 0.075,
                 "object_start_radius": 0.05,
@@ -954,6 +1037,7 @@ def register_robotrl_fetch_envs() -> None:
             FETCH_BOX_PLACE_BASIC_RANDOM_WIDE_ENV_ID,
             {
                 "success_mode": "basic",
+                "require_release_for_success": True,
                 "basic_box_half_size": 0.065,
                 "basic_height_tolerance": 0.075,
                 "object_start_radius": 0.08,
@@ -962,6 +1046,7 @@ def register_robotrl_fetch_envs() -> None:
         (
             FETCH_BOX_PLACE_RANDOM_WIDE_ENV_ID,
             {
+                "require_release_for_success": True,
                 "object_start_radius": 0.08,
             },
         ),

@@ -13,6 +13,39 @@ The R30O Protocol prevents long blind training runs. The orchestrator does not
 wait for a full run to finish if the checkpoint, logs, metrics, or rollout
 already show that the current direction is failing.
 
+## Reward-Design Reference
+
+For RobotRL pick-and-place training, R30O must use
+`docs/r30o_pick_place_reward_design_db.md` as the reward-design reference before
+changing rewards, gates, diagnostics, curricula, or visual approval criteria.
+The DB is the local source for:
+
+- the physical success contract;
+- reward-stage priorities;
+- anti-push, anti-slide, and anti-penetration penalties;
+- telemetry needed to approve or reject a stage;
+- external MuJoCo, FetchPickAndPlace, SAC, and HER references.
+
+Do not design a reward from scalar goal distance alone. The current target is
+stable randomized pick-and-place: approach, grasp, lift, carry, physically valid
+box entry, release, settle, and no wall/table tunneling.
+
+## Learning Roadmap
+
+Call the staged path toward `n` objects in the box the **Learning Roadmap**.
+R30O must keep the active roadmap stage explicit in reports and handoff notes.
+
+| Roadmap stage | Name | Completion target |
+| ---: | --- | --- |
+| 1 | Single-object randomized pick-and-place | One randomly spawned object is grasped, lifted, carried, placed in the box, released, settled, and visually approved. |
+| 2 | Two-object cued placement | Two objects are placed in the box with active-object cues and without fixed-position overfitting. |
+| 3 | Two-object randomized placement | Two randomly spawned objects are placed in the box with stable grasp/lift/carry/place behavior for each object. |
+| 4 | Incremental `n`-object placement | Increase object count only after the previous count passes numeric, telemetry, and visual gates. |
+| 5 | Final `n`-object generalization | The requested `n` objects are placed in the box across held-out seeds without pushing, sliding, tunneling, or scalar-only success. |
+
+The current active roadmap stage is **Stage 1**. When Stage 1 clears, R30O
+continues to Stage 2. Repeat this pattern until the last roadmap stage clears.
+
 ## Roles
 
 - **Orchestrator**: judges progress, decides whether to continue or trigger
@@ -151,4 +184,3 @@ The report must include:
 - restart command;
 - output directory;
 - remaining risk.
-

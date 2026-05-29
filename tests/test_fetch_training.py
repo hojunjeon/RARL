@@ -74,7 +74,28 @@ class FetchTrainingConfigTest(unittest.TestCase):
         self.assertEqual(len(wall_geoms), 4)
         for geom in wall_geoms:
             half_extents = [float(value) for value in (geom.get("size") or "").split()]
-            self.assertGreaterEqual(half_extents[2], 0.04, geom.get("name"))
+            self.assertGreaterEqual(half_extents[2], 0.055, geom.get("name"))
+
+    def test_fetch_box_tray_walls_are_thick_stiff_contacts(self):
+        for asset_name in ["fetch_box_place.xml", "fetch_box_place_two.xml"]:
+            asset_path = Path(__file__).resolve().parents[1] / "robotrl" / "assets" / asset_name
+            root = ET.parse(asset_path).getroot()
+            wall_geoms = [
+                geom
+                for geom in root.findall(".//geom")
+                if (geom.get("name") or "").startswith("box_tray0:")
+                and (geom.get("name") or "") != "box_tray0:base"
+            ]
+
+            self.assertEqual(len(wall_geoms), 4)
+            for geom in wall_geoms:
+                half_extents = [float(value) for value in (geom.get("size") or "").split()]
+                thin_axis = min(half_extents[0], half_extents[1])
+                self.assertGreaterEqual(thin_axis, 0.015, f"{asset_name}:{geom.get('name')}")
+                self.assertEqual(geom.get("condim"), "4", f"{asset_name}:{geom.get('name')}")
+                self.assertEqual(geom.get("solref"), "0.004 1", f"{asset_name}:{geom.get('name')}")
+                self.assertEqual(geom.get("solimp"), "0.95 0.99 0.001", f"{asset_name}:{geom.get('name')}")
+                self.assertEqual(geom.get("margin"), "0.003", f"{asset_name}:{geom.get('name')}")
 
     def test_two_object_asset_defines_second_collidable_free_object(self):
         asset_path = Path(__file__).resolve().parents[1] / "robotrl" / "assets" / "fetch_box_place_two.xml"
@@ -830,6 +851,116 @@ class FetchTrainingConfigTest(unittest.TestCase):
             self.assertEqual(low_diagnostics["object1_in_box"], 0.0)
             self.assertEqual(high_diagnostics["object1_in_box"], 0.0)
             self.assertEqual(high_diagnostics["object1_valid_box_entry"], 0.0)
+        finally:
+            env.close()
+
+    def test_single_random_stage_rewards_grasp_lift_before_goal_chasing(self):
+        import gymnasium as gym
+        import gymnasium_robotics  # noqa: F401
+
+        register_robotrl_fetch_envs()
+        env = gym.make(FETCH_BOX_PLACE_BASIC_RANDOM_NARROW_ENV_ID)
+        obs, _info = env.reset(seed=7)
+        unwrapped = env.unwrapped
+        try:
+            low_obs = {key: value.copy() for key, value in obs.items()}
+            low_object_pos = low_obs["achieved_goal"].copy()
+            low_object_pos[2] = float(unwrapped.height_offset)
+            low_obs["achieved_goal"] = low_object_pos
+            low_obs["observation"][:3] = low_object_pos + np.array([0.025, 0.0, 0.0])
+            low_obs["observation"][3:6] = low_object_pos
+
+            lifted_obs = {key: value.copy() for key, value in low_obs.items()}
+            lifted_object_pos = low_object_pos + np.array([0.0, 0.0, 0.08])
+            lifted_obs["achieved_goal"] = lifted_object_pos
+            lifted_obs["observation"][:3] = lifted_object_pos + np.array([0.025, 0.0, 0.0])
+            lifted_obs["observation"][3:6] = lifted_object_pos
+
+            far_obs = {key: value.copy() for key, value in low_obs.items()}
+            far_obs["observation"][:3] = low_object_pos + np.array([0.18, 0.0, 0.0])
+
+            low_diagnostics = unwrapped._placement_diagnostics(low_obs)
+            lifted_diagnostics = unwrapped._placement_diagnostics(lifted_obs)
+            far_diagnostics = unwrapped._placement_diagnostics(far_obs)
+
+            low_reward = unwrapped._compute_shaped_reward(low_obs, low_diagnostics)
+            lifted_reward = unwrapped._compute_shaped_reward(lifted_obs, lifted_diagnostics)
+            far_reward = unwrapped._compute_shaped_reward(far_obs, far_diagnostics)
+
+            self.assertGreater(low_reward, far_reward)
+            self.assertGreater(lifted_reward - low_reward, 1.5)
+        finally:
+            env.close()
+
+    def test_single_random_stage_rewards_release_withdraw_after_placement(self):
+        import gymnasium as gym
+        import gymnasium_robotics  # noqa: F401
+
+        register_robotrl_fetch_envs()
+        env = gym.make(FETCH_BOX_PLACE_BASIC_RANDOM_NARROW_ENV_ID)
+        obs, _info = env.reset(seed=7)
+        unwrapped = env.unwrapped
+        try:
+            placed_object_pos = unwrapped.goal.copy()
+            placed_object_pos[2] = float(unwrapped.height_offset)
+
+            stuck_obs = {key: value.copy() for key, value in obs.items()}
+            stuck_obs["achieved_goal"] = placed_object_pos.copy()
+            stuck_obs["observation"][3:6] = placed_object_pos
+            stuck_obs["observation"][:3] = placed_object_pos + np.array([0.005, 0.0, 0.0])
+            stuck_obs["observation"][9:11] = np.array([0.0, 0.0])
+
+            withdrawn_obs = {key: value.copy() for key, value in stuck_obs.items()}
+            withdrawn_obs["observation"][:3] = unwrapped.initial_gripper_xpos.copy()
+            withdrawn_obs["observation"][9:11] = np.array([0.04, 0.04])
+
+            stuck_diagnostics = unwrapped._placement_diagnostics(stuck_obs)
+            withdrawn_diagnostics = unwrapped._placement_diagnostics(withdrawn_obs)
+
+            stuck_reward = unwrapped._compute_shaped_reward(stuck_obs, stuck_diagnostics)
+            withdrawn_reward = unwrapped._compute_shaped_reward(withdrawn_obs, withdrawn_diagnostics)
+
+            self.assertEqual(stuck_diagnostics["basic_success"], 1.0)
+            self.assertEqual(withdrawn_diagnostics["basic_success"], 1.0)
+            self.assertGreater(withdrawn_reward - stuck_reward, 2.0)
+        finally:
+            env.close()
+
+    def test_single_random_stage_success_requires_release_withdraw_gate(self):
+        import gymnasium as gym
+        import gymnasium_robotics  # noqa: F401
+
+        register_robotrl_fetch_envs()
+        env = gym.make(FETCH_BOX_PLACE_BASIC_RANDOM_NARROW_ENV_ID)
+        obs, _info = env.reset(seed=7)
+        unwrapped = env.unwrapped
+        try:
+            self.assertTrue(unwrapped.require_release_for_success)
+
+            placed_object_pos = unwrapped.goal.copy()
+            placed_object_pos[2] = float(unwrapped.height_offset)
+            stuck_obs = {key: value.copy() for key, value in obs.items()}
+            stuck_obs["achieved_goal"] = placed_object_pos.copy()
+            stuck_obs["observation"][3:6] = placed_object_pos
+            stuck_obs["observation"][:3] = placed_object_pos + np.array([0.005, 0.0, 0.0])
+            stuck_obs["observation"][9:11] = np.array([0.0, 0.0])
+            stuck_diagnostics = unwrapped._placement_diagnostics(stuck_obs)
+
+            edge_withdrawn_obs = {key: value.copy() for key, value in stuck_obs.items()}
+            edge_withdrawn_obs["observation"][:3] = placed_object_pos + np.array([0.08, 0.0, 0.0])
+            edge_withdrawn_obs["observation"][9:11] = np.array([0.04, 0.04])
+            edge_withdrawn_diagnostics = unwrapped._placement_diagnostics(edge_withdrawn_obs)
+
+            fully_withdrawn_obs = {key: value.copy() for key, value in edge_withdrawn_obs.items()}
+            fully_withdrawn_obs["observation"][:3] = unwrapped.initial_gripper_xpos.copy()
+            fully_withdrawn_diagnostics = unwrapped._placement_diagnostics(fully_withdrawn_obs)
+
+            self.assertEqual(stuck_diagnostics["basic_success"], 1.0)
+            self.assertEqual(stuck_diagnostics["basic_release_success"], 0.0)
+            self.assertEqual(edge_withdrawn_diagnostics["basic_success"], 1.0)
+            self.assertEqual(edge_withdrawn_diagnostics["basic_release_success"], 0.0)
+            self.assertEqual(fully_withdrawn_diagnostics["basic_success"], 1.0)
+            self.assertEqual(fully_withdrawn_diagnostics["basic_release_success"], 1.0)
         finally:
             env.close()
 
@@ -1699,7 +1830,7 @@ class FetchBoxPlaceEnvTest(unittest.TestCase):
             unwrapped.model.geom_conaffinity[tray_geom_ids] = original_conaffinity
             env.close()
 
-    def test_curriculum_env_starts_object_near_gripper_side_of_tray(self):
+    def test_curriculum_env_starts_object_in_robot_front_workspace_away_from_left_box(self):
         import gymnasium as gym
         import gymnasium_robotics  # noqa: F401
 
@@ -1710,7 +1841,9 @@ class FetchBoxPlaceEnvTest(unittest.TestCase):
         try:
             self.assertEqual(unwrapped.reward_type, "dense")
             self.assertLess(np.linalg.norm(obs["achieved_goal"][:2] - np.array(CURRICULUM_OBJECT_START_XY)), 0.035)
-            self.assertLess(obs["achieved_goal"][0], 1.345)
+            self.assertLess(abs(obs["achieved_goal"][0] - 1.30), 0.04)
+            self.assertLess(abs(obs["achieved_goal"][1] - 0.75), 0.04)
+            self.assertGreater(RIGHT_BOX_CENTER_XY[1], obs["achieved_goal"][1])
             np.testing.assert_allclose(obs["desired_goal"][:2], np.array(RIGHT_BOX_CENTER_XY), atol=1e-6)
         finally:
             env.close()
@@ -1730,6 +1863,10 @@ class FetchBoxPlaceEnvTest(unittest.TestCase):
                     np.linalg.norm(obs["achieved_goal"][:2] - np.array(CURRICULUM_OBJECT_START_XY)),
                     0.115,
                 )
+                self.assertGreater(obs["achieved_goal"][0], 1.20)
+                self.assertLess(obs["achieved_goal"][0], 1.40)
+                self.assertGreater(obs["achieved_goal"][1], 0.65)
+                self.assertLess(obs["achieved_goal"][1], 0.85)
                 np.testing.assert_allclose(obs["desired_goal"][:2], np.array(RIGHT_BOX_CENTER_XY), atol=1e-6)
 
             pairwise_distances = [

@@ -19,13 +19,13 @@
       <geom size="0.25 0.35 0.2" type="box" mass="2000" material="table_mat"></geom>
     </body>
 
-    <body name="box_tray0" pos="1.42 0.58 0.405">
-      <geom name="box_tray0:base" type="box" pos="0 0 0" size="0.075 0.075 0.005" rgba="0.1 0.45 1.0 0.35"></geom>
-      <geom name="box_tray0:left_wall" type="box" pos="0 0.08 0.045" size="0.085 0.005 0.045" rgba="0.1 0.45 1.0 0.75"></geom>
-      <geom name="box_tray0:right_wall" type="box" pos="0 -0.08 0.045" size="0.085 0.005 0.045" rgba="0.1 0.45 1.0 0.75"></geom>
-      <geom name="box_tray0:front_wall" type="box" pos="0.08 0 0.045" size="0.005 0.085 0.045" rgba="0.1 0.45 1.0 0.75"></geom>
-      <geom name="box_tray0:back_wall" type="box" pos="-0.08 0 0.045" size="0.005 0.085 0.045" rgba="0.1 0.45 1.0 0.75"></geom>
-      <site name="box_tray0:center" pos="0 0 0.04" size="0.01 0.01 0.01" rgba="0.0 0.2 1.0 1" type="sphere"></site>
+    <body name="box_tray0" pos="1.42 0.92 0.405">
+      <geom name="box_tray0:base" type="box" pos="0 0 0" size="0.105 0.105 0.005" contype="1" conaffinity="1" condim="4" friction="1.2 0.05 0.01" solref="0.004 1" solimp="0.95 0.99 0.001" margin="0.003" rgba="0.1 0.45 1.0 0.35"></geom>
+      <geom name="box_tray0:left_wall" type="box" pos="0 0.09 0.06" size="0.09 0.015 0.06" contype="1" conaffinity="1" condim="4" friction="1.2 0.05 0.01" solref="0.004 1" solimp="0.95 0.99 0.001" margin="0.003" rgba="0.1 0.45 1.0 0.75"></geom>
+      <geom name="box_tray0:right_wall" type="box" pos="0 -0.09 0.06" size="0.09 0.015 0.06" contype="1" conaffinity="1" condim="4" friction="1.2 0.05 0.01" solref="0.004 1" solimp="0.95 0.99 0.001" margin="0.003" rgba="0.1 0.45 1.0 0.75"></geom>
+      <geom name="box_tray0:front_wall" type="box" pos="0.09 0 0.06" size="0.015 0.09 0.06" contype="1" conaffinity="1" condim="4" friction="1.2 0.05 0.01" solref="0.004 1" solimp="0.95 0.99 0.001" margin="0.003" rgba="0.1 0.45 1.0 0.75"></geom>
+      <geom name="box_tray0:back_wall" type="box" pos="-0.09 0 0.06" size="0.015 0.09 0.06" contype="1" conaffinity="1" condim="4" friction="1.2 0.05 0.01" solref="0.004 1" solimp="0.95 0.99 0.001" margin="0.003" rgba="0.1 0.45 1.0 0.75"></geom>
+      <site name="box_tray0:center" pos="0 0 0.055" size="0.01 0.01 0.01" rgba="0.0 0.2 1.0 1" type="sphere"></site>
     </body>
 
     <body name="object0" pos="0.025 0.025 0.025">

@@ -3589,3 +3589,278 @@
 - Full green: `python -m unittest discover -s tests -v` passed, 81 tests OK.
 - Dry-run spec check: `python -m robotrl.cli fetch-loop --dry-run --curriculum single-random-to-return --chunk-timesteps 123 --eval-episodes 3 --success-threshold 0.8 --visual-approval-timeout-seconds 12 --visual-approval-poll-interval-seconds 2 --output-dir .omx\learning4_visual_gate_dryrun3` wrote `visual_approval_required=true`, `visual_approval_timeout_seconds=12.0`, and `visual_approval_poll_interval_seconds=2.0`; temporary dry-run output was removed after inspection.
 - Ruff unavailable: `python -m ruff check robotrl\fetch_training.py robotrl\cli.py tests\test_fetch_training.py` failed with `No module named ruff`.
+
+## 093 - 2026-05-28 KST - tray wall physical collision hardening
+
+### Request
+- The latest `runs\learning_3\run_006_multi_object_2_object1_lift_stage_seed7\videos\stage_02_iteration_002_rollout.gif` showed the object being pushed through the box/tray wall.
+- Prefer a physically blocking tray so reward design can focus on motion quality instead of compensating for wall penetration.
+
+### Changes
+- Hardened both Fetch tray assets, `robotrl\assets\fetch_box_place.xml` and `robotrl\assets\fetch_box_place_two.xml`.
+- Increased tray wall half-thickness from `0.005` to `0.015` and wall half-height from `0.045` to `0.06`, moving wall centers outward so the usable inner box remains aligned with the previous base footprint.
+- Added explicit tray contact settings: `contype=1`, `conaffinity=1`, `condim=4`, `friction="1.2 0.05 0.01"`, `solref="0.004 1"`, `solimp="0.95 0.99 0.001"`, and `margin="0.003"`.
+- Kept object geoms on the original Fetch-style contact settings after a first attempt to harden object contacts caused two-object reset instability.
+- Added regression coverage that locks the tray wall thickness, height, and stiff contact settings for both one-object and two-object assets.
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_fetch_box_tray_geoms_are_collidable tests.test_fetch_training.FetchTrainingConfigTest.test_fetch_box_tray_walls_are_tall_enough_for_curriculum_landing tests.test_fetch_training.FetchTrainingConfigTest.test_fetch_box_tray_walls_are_thick_stiff_contacts tests.test_fetch_training.FetchBoxPlaceEnvTest.test_two_object_basic_cued_stage_relaxes_success_without_changing_cued_observation_shape tests.test_fetch_training.FetchBoxPlaceEnvTest.test_two_object_sequential_stage_success_requires_both_objects_in_box_not_home tests.test_fetch_training.FetchBoxPlaceEnvTest.test_two_object_sequential_success_requires_both_objects_in_box_and_home -v` passed, 6 tests OK.
+- Env smoke: `RobotRLFetchBoxPlace-v0` and `RobotRLFetchBoxPlaceTwoSequentialOverWallObject1LiftCued-v0` load with `tray_collision_enabled=True`.
+- Reset smoke: `RobotRLFetchBoxPlaceTwoSequential-v0` reset keeps object0, object1, and goal heights aligned at about `0.424889`, with `tray_collision_enabled=True`.
+- Full green: `python -m unittest discover -s tests -v` passed, 82 tests OK.
+
+## 094 - 2026-05-28 KST - visible object starts and R30O reward-design DB
+
+### Request
+- Move randomized object starts to the visible/opposite side of the tray so grasping is easier to inspect in rollout videos.
+- Collect local RobotRL facts, image/video observations, and pick-and-place RL references into a docs DB for the next R30O run.
+- Redesign the reward contract around stable randomized grasp, lift, carry, physical tray placement, release, and settle.
+
+### Changes
+- Moved the single-object curriculum start in `robotrl\fetch_envs.py` to `CURRICULUM_OBJECT_START_XY = (1.53, 0.41)`, placing sampled objects on the visible opposite side of the tray.
+- Moved two-object over-wall starts to `TWO_OBJECT_START_XYS = ((1.50, 0.41), (1.53, 0.50))`, keeping object spacing valid while making both starts easier to see.
+- Updated spawn-position tests in `tests\test_fetch_training.py` to lock the new visible/opposite-side placement.
+- Added `docs\r30o_pick_place_reward_design_db.md` with local environment facts, current reward terms, MuJoCo contact references, Fetch/SAC/HER references, visual acceptance criteria, proposed reward stages, penalties, and telemetry needed before R30O acceptance.
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchBoxPlaceEnvTest.test_curriculum_env_starts_object_on_visible_opposite_side_of_tray tests.test_fetch_training.FetchBoxPlaceEnvTest.test_single_random_wide_env_samples_object_inside_wider_front_workspace tests.test_fetch_training.FetchBoxPlaceEnvTest.test_two_object_sequential_env_resets_two_front_objects_with_compatible_observation_shape tests.test_fetch_training.FetchBoxPlaceEnvTest.test_two_object_cued_env_adds_active_object_one_hot_without_changing_old_env_shape -v` passed, 4 tests OK.
+- Env smoke confirmed visible opposite-side samples: `RobotRLFetchBoxPlaceBasicRandomWide-v0` sampled `achieved_xy` around `(1.55, 0.47)`, and `RobotRLFetchBoxPlaceTwoSequentialOverWallObject1LiftCued-v0` sampled object starts on the same visible side.
+- Full green: `python -m unittest discover -s tests -v` passed, 82 tests OK.
+
+## 095 - 2026-05-28 KST - Learning Roadmap Stage 1 R30O start
+
+### Request
+- Record that reward/gate design must reference `docs\r30o_pick_place_reward_design_db.md`.
+- Name the staged path toward `n` objects in the box as the Learning Roadmap and number its stages.
+- Start R30O Learning Roadmap Stage 1 now, continue to the next roadmap stage after Stage 1 clears, and repeat until the final stage clears.
+
+### Changes
+- Updated `docs\robotrl_30min_orchestrator_protocol.md` with a reward-design reference rule requiring R30O to consult `docs\r30o_pick_place_reward_design_db.md` before reward, gate, diagnostic, curriculum, or visual-approval changes.
+- Added the Learning Roadmap to `docs\robotrl_30min_orchestrator_protocol.md`: Stage 1 single-object randomized pick-and-place, Stage 2 two-object cued placement, Stage 3 two-object randomized placement, Stage 4 incremental `n`-object placement, Stage 5 final `n`-object generalization.
+- Updated `docs\agent_training_loop_guideline.md` with the same DB-reference rule and active Stage 1 status.
+- Updated `runs\learning_4\README.md` to mark learning_4 as Learning Roadmap Stage 1 and document the active `run_003_learning_roadmap_stage1_r30o_seed7` command.
+- Created a 30-minute heartbeat automation named `R30O learning roadmap monitor` to inspect the active R30O run and continue the roadmap loop.
+- Started the real Stage 1 R30O run:
+  - PID: `19704`
+  - Output dir: `runs\learning_4\run_003_learning_roadmap_stage1_r30o_seed7`
+  - Stdout: `runs\learning_4\run_003_learning_roadmap_stage1_r30o_seed7\r30o_stdout.log`
+  - Stderr: `runs\learning_4\run_003_learning_roadmap_stage1_r30o_seed7\r30o_stderr.log`
+
+### Verification
+- Live-process check found active `python -m robotrl.cli fetch-loop --curriculum single-random-to-return ... --output-dir runs\learning_4\run_003_learning_roadmap_stage1_r30o_seed7` as PID `19704`.
+- Dry-run spec check passed before launch: `python -m robotrl.cli fetch-loop --dry-run --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir .omx\r30o_stage1_run003_dryrun` wrote the five-stage Stage 1 curriculum and `visual_approval_required=true`.
+- Early stdout confirms SAC rollout logging is active with `success_rate=0` during initial warmup timesteps.
+
+## 096 - 2026-05-28 KST - R30O Stage 1 grasp/lift reward correction
+
+### Request
+- Continue R30O monitoring and use the DB-guided correction path only when the active Stage 1 run is clearly wrong.
+
+### Evidence
+- `runs\learning_4\run_003_learning_roadmap_stage1_r30o_seed7` remained on Stage 1 after `stage_01_iteration_009`.
+- At 450,036 timesteps, eval still showed `success_rate=0.0`, `mean_max_object_lift=0.0`, and `video_max_object_lift=0.0`.
+- The best approach metric improved temporarily, but the policy did not create grasp/lift behavior: latest `mean_min_gripper_object_distance=0.1663`, `video_object_motion_distance=0.0002`.
+- Classified as clearly wrong under `docs\r30o_pick_place_reward_design_db.md`: the policy was not crossing from approach into stable grasp/lift.
+
+### Changes
+- Stopped run003 PID `19704`.
+- Adjusted `RobotRLFetchBoxPlaceEnv._compute_shaped_reward` in `robotrl\fetch_envs.py`:
+  - reduced full placement-goal pressure before any lift;
+  - strengthened gripper-object approach reward;
+  - added near-object grasp bonus;
+  - increased lift reward, especially when the gripper is close to the object;
+  - kept over-lift and final success terms intact.
+- Added regression coverage in `tests\test_fetch_training.py` so the single-random Stage 1 reward prefers close approach over far gripper state and strongly prefers lifted close-object state over low close-object state.
+- Updated `runs\learning_4\README.md` with run003 failure notes and the new active run004 command.
+- Updated the 30-minute heartbeat automation to monitor run004.
+- Started the replacement R30O Stage 1 run:
+  - PID: `22980`
+  - Output dir: `runs\learning_4\run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7`
+  - Stdout: `runs\learning_4\run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7\r30o_stdout.log`
+  - Stderr: `runs\learning_4\run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7\r30o_stderr.log`
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_grasp_lift_before_goal_chasing tests.test_fetch_training.FetchTrainingConfigTest.test_two_object_over_wall_object1_stage_rewards_active_lift_before_valid_entry_credit tests.test_fetch_training.FetchBoxPlaceEnvTest.test_curriculum_env_starts_object_on_visible_opposite_side_of_tray tests.test_fetch_training.FetchBoxPlaceEnvTest.test_single_random_wide_env_samples_object_inside_wider_front_workspace -v` passed, 4 tests OK.
+- Full green: `python -m unittest discover -s tests -v` passed, 83 tests OK.
+- Live-process check found active `python -m robotrl.cli fetch-loop --curriculum single-random-to-return ... --output-dir runs\learning_4\run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7` as PID `22980`.
+
+## 097 - 2026-05-28 KST - left-box front-random layout correction
+
+### Request
+- Correct the environment premise: random object starts should not be on the tray's opposite side. The box should move to the robot-left side when the robot faces forward, and objects should spawn randomly inside a bounded robot-front workspace so a fixed motion cannot solve the task.
+
+### Evidence
+- `run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7` was still using the wrong layout inherited from the visibility-driven correction: tray/opposite-side object starts instead of robot-front random starts.
+- The user clarified the intended coordinate contract during the R30O heartbeat.
+
+### Changes
+- Stopped run004 PID `22980`; its metrics are no longer valid for the corrected roadmap layout.
+- Moved the tray/goal to robot-left in code and assets:
+  - `RIGHT_BOX_CENTER_XY = (1.42, 0.92)` in `robotrl\fetch_envs.py`.
+  - `box_tray0 pos="1.42 0.92 0.405"` in both Fetch tray XML assets.
+- Restored robot-front random object starts:
+  - `CURRICULUM_OBJECT_START_XY = (1.30, 0.75)`.
+  - `TWO_OBJECT_START_XYS = ((1.27, 0.75), (1.35, 0.75))`.
+- Updated tests to assert robot-front spawn bounds and the left-side target instead of the previous visible/opposite-side assumption.
+- Updated `docs\r30o_pick_place_reward_design_db.md`, `docs\agent_training_loop_guideline.md`, and `runs\learning_4\README.md` to record the corrected layout contract.
+- Updated the R30O heartbeat automation to monitor run005 and the corrected layout.
+- Started the corrected R30O Stage 1 run:
+  - PID: `70252`
+  - Output dir: `runs\learning_4\run_005_learning_roadmap_stage1_left_box_front_random_seed7`
+  - Stdout: `runs\learning_4\run_005_learning_roadmap_stage1_left_box_front_random_seed7\r30o_stdout.log`
+  - Stderr: `runs\learning_4\run_005_learning_roadmap_stage1_left_box_front_random_seed7\r30o_stderr.log`
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchBoxPlaceEnvTest.test_box_place_env_places_goal_on_fixed_table_box_zone tests.test_fetch_training.FetchBoxPlaceEnvTest.test_curriculum_env_starts_object_in_robot_front_workspace_away_from_left_box tests.test_fetch_training.FetchBoxPlaceEnvTest.test_single_random_wide_env_samples_object_inside_wider_front_workspace tests.test_fetch_training.FetchTrainingConfigTest.test_fetch_box_tray_geoms_are_collidable tests.test_fetch_training.FetchTrainingConfigTest.test_fetch_box_tray_walls_are_thick_stiff_contacts -v` passed, 5 tests OK.
+- Full green: `python -m unittest discover -s tests -v` passed, 83 tests OK.
+- Env smoke for `RobotRLFetchBoxPlaceBasicRandomWide-v0` confirmed fixed target `goal_xy=[1.42, 0.92]` and varied robot-front object samples such as `[1.32, 0.8136]`, `[1.2723, 0.828]`, `[1.3592, 0.7159]`, and `[1.373, 0.7032]`.
+- Dry-run spec check passed before launch: `python -m robotrl.cli fetch-loop --dry-run --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir .omx\r30o_stage1_run005_dryrun` wrote the five-stage Stage 1 curriculum and `visual_approval_required=true`.
+- Live-process check found active `python -m robotrl.cli fetch-loop --curriculum single-random-to-return ... --output-dir runs\learning_4\run_005_learning_roadmap_stage1_left_box_front_random_seed7` as PID `70252`.
+
+## 098 - 2026-05-28 KST - run005 heartbeat visual gate hold
+
+### Evidence
+- Live-process check still found run005 active as PID `70252`; TensorBoard is active as PID `38528` on `http://127.0.0.1:6006/`.
+- Latest `eval_results.json` has 4 records. Iteration 4 at `200016` timesteps reported `success_rate=0.95`, `mean_final_object_goal_distance=0.0451`, `mean_max_object_lift=0.1626`, `mean_min_gripper_object_distance=0.0068`, `video_episode_success=1.0`, and `video_max_step_object_displacement_without_contact=0.0`.
+- Generated and inspected `runs\learning_4\run_005_learning_roadmap_stage1_left_box_front_random_seed7\videos\stage_01_iteration_004_contact_sheet.png` and `stage_01_iteration_004_box_zoom_sheet.png` from the latest rollout GIF.
+- Visual evidence shows approach, grasp/lift, and carry into the robot-left box, but the final frames still have the gripper inside the box. That is not enough evidence for release, settle, and withdrawal.
+
+### Decision
+- Classified as progress / still ambiguous, not clearly wrong.
+- Did not create `stage_01_iteration_004_rollout.approved.json`; Stage 1 should not advance on scalar success alone.
+- Next action is to let run005 continue and re-check the next successful visual candidate. If future high-success videos keep ending with the gripper inserted in the box, apply the DB-guided correction toward release/settle/withdrawal rather than approving the stage.
+
+## 099 - 2026-05-28 KST - run005 heartbeat continued
+
+### Evidence
+- Live-process check still found run005 active as PID `70252`; TensorBoard remains active as PID `38528` on port `6006`.
+- `eval_results.json` is unchanged at 4 evaluation records. The latest record remains iteration 4 at `200016` timesteps with `success_rate=0.95`, `mean_max_object_lift=0.1626`, `mean_final_object_goal_distance=0.0451`, `video_episode_success=1.0`, and `visual_approval_status=pending`.
+- `r30o_stdout.log` shows training continued past the pending visual gate to about `211800` timesteps with rollout `success_rate` around `0.87`, so the process is live rather than stalled.
+- No newer rollout GIF exists beyond `stage_01_iteration_004_rollout.gif`, and no visual approval marker exists yet.
+
+### Decision
+- Classified as progress / still ambiguous.
+- No Stage 1 advance and no DB-guided correction yet: current evidence is improving grasp/lift/carry performance, but the newest inspected video still lacks release/settle/withdrawal proof.
+- Next action is to keep run005 running until the next eval/video candidate; approve only if visual evidence shows grasp, lift, carry to robot-left box, physical placement, release, settle, and no pushing/sliding/tunneling.
+
+## 100 - 2026-05-28 KST - run005 rejected and run006 release/withdraw correction started
+
+### Evidence
+- Live-process check found run005 active as PID `70252` before intervention.
+- `eval_results.json` added iteration 5 at `250020` timesteps with `success_rate=0.95`, `mean_max_object_lift=0.1458`, `mean_min_gripper_object_distance=0.005`, `mean_final_object_goal_distance=0.0651`, `video_episode_success=1.0`, and `video_max_step_object_displacement_without_contact=0.0`.
+- Generated and inspected `stage_01_iteration_005_contact_sheet.png` and `stage_01_iteration_005_box_zoom_sheet.png` from `stage_01_iteration_005_rollout.gif`.
+- Visual evidence repeated the run005 exploit: approach, lift, and carry into the robot-left box were visible, but the gripper remained inserted inside the tray through the final frame. There was no visual proof of release, settle, or withdrawal.
+
+### Changes
+- Classified run005 as clearly wrong and stopped PID `70252`; scalar success was exploiting the basic placement gate instead of completing the required manipulation behavior.
+- Added a DB-guided release/withdraw shaped reward in `robotrl\fetch_envs.py`:
+  - After placement, reward gripper-object separation, gripper opening, and home-direction withdrawal.
+  - Penalize continued close gripper-object contact after the object is already placed.
+- Added `test_single_random_stage_rewards_release_withdraw_after_placement` in `tests\test_fetch_training.py`.
+- Updated `docs\r30o_pick_place_reward_design_db.md` and `runs\learning_4\README.md` with the run006 correction and acceptance rule.
+- Started replacement Stage 1 run:
+  - PID: `30704`
+  - Output dir: `runs\learning_4\run_006_learning_roadmap_stage1_release_withdraw_reward_seed7`
+  - TensorBoard PID: `49492`
+  - TensorBoard URL: `http://127.0.0.1:6006/`
+- Updated the R30O heartbeat automation to monitor run006 and require release, settle, and withdrawal evidence.
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_release_withdraw_after_placement tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_grasp_lift_before_goal_chasing tests.test_fetch_training.FetchTrainingConfigTest.test_visual_gate_rejects_weak_single_object_trajectory_diagnostics -v` passed, 3 tests OK.
+- Full green: `python -m unittest discover -s tests -v` passed, 84 tests OK.
+- Live-process check after restart found run006 active as PID `30704` and TensorBoard on run006 logs as PID `49492`.
+
+## 101 - 2026-05-28 KST - run006 heartbeat visual gate hold
+
+### Evidence
+- Live-process check found run006 active as PID `30704`; TensorBoard remains active as PID `49492` on port `6006`.
+- `eval_results.json` has 4 records. Latest iteration 4 at `200016` timesteps reports `success_rate=1.0`, `mean_final_object_goal_distance=0.0355`, `mean_max_object_lift=0.1652`, `mean_min_gripper_object_distance=0.006`, `video_episode_success=1.0`, and `visual_approval_status=pending`.
+- Training is continuing past the pending visual gate; `r30o_stdout.log` shows rollout `success_rate=0.92` around `232800` timesteps.
+- Generated and inspected `stage_01_iteration_004_contact_sheet.png` and `stage_01_iteration_004_box_zoom_sheet.png` from the latest run006 rollout.
+- Visual evidence still shows approach, lift, and carry to the robot-left box, but the gripper remains inside the tray through the final frames. Release, settle, and withdrawal are not proven.
+
+### Decision
+- Classified as progress / still ambiguous, not cleared.
+- Did not create `stage_01_iteration_004_rollout.approved.json`; scalar success alone is insufficient.
+- No additional reward correction yet: run006 contains the release/withdraw correction and is still early in the first stage. Continue to the next evaluation candidate; if the next high-success videos repeat the same inserted-gripper endpoint, classify run006 as clearly wrong and strengthen the post-placement gate/reward.
+
+## 102 - 2026-05-28 KST - run006 rejected and run007 release-success gate started
+
+### Evidence
+- Live-process check found run006 active as PID `30704` before intervention.
+- `eval_results.json` added iteration 5 at `250020` timesteps with `success_rate=0.95`, `mean_final_object_goal_distance=0.0349`, `mean_max_object_lift=0.1597`, `mean_min_gripper_object_distance=0.0116`, `video_episode_success=1.0`, and `video_max_step_object_displacement_without_contact=0.0101`.
+- Generated and inspected `stage_01_iteration_005_contact_sheet.png` and `stage_01_iteration_005_box_zoom_sheet.png` from the latest rollout.
+- The visual failure repeated after the release/withdraw reward correction: the object was carried to the robot-left box, but the gripper remained inserted inside the tray through the final frames. No release, settle, or withdrawal proof was present.
+
+### Changes
+- Classified run006 as clearly wrong and stopped PID `30704`.
+- Added `require_release_for_success` to `RobotRLFetchBoxPlaceEnv`.
+- Hardened single-random curriculum success:
+  - Basic random narrow/medium/wide stages now require placement plus gripper opening, gripper-object separation, and withdrawal from the tray area.
+  - Full random wide placement also requires the same release/withdraw gate.
+  - The final return-home stage remains stricter.
+- Added release-gate diagnostics: `gripper_goal_xy_distance`, `basic_release_success`, and `final_release_success`.
+- Added `test_single_random_stage_success_requires_release_withdraw_gate`.
+- Started replacement Stage 1 run:
+  - PID: `36684`
+  - Output dir: `runs\learning_4\run_007_learning_roadmap_stage1_release_success_gate_seed7`
+  - TensorBoard PID: `78768`
+  - TensorBoard URL: `http://127.0.0.1:6006/`
+- Updated the R30O heartbeat automation to monitor run007.
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_success_requires_release_withdraw_gate tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_release_withdraw_after_placement tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_grasp_lift_before_goal_chasing tests.test_fetch_training.FetchTrainingConfigTest.test_cli_fetch_loop_curriculum_dry_run_records_single_random_to_return_path -v` passed, 4 tests OK.
+- Full green: `python -m unittest discover -s tests -v` passed, 85 tests OK.
+- Live-process check after restart found run007 active as PID `36684` and TensorBoard on run007 logs as PID `78768`.
+
+## 103 - 2026-05-28 KST - run007 heartbeat gate alignment check
+
+### Evidence
+- Live-process check found run007 active as PID `36684`; TensorBoard remains active as PID `78768` on port `6006`.
+- `eval_results.json` has 3 records. All are still in `RobotRLFetchBoxPlaceBasicRandomNarrow-v0`.
+- Iteration 1 at `50004` timesteps: `success_rate=0.0`, `mean_max_object_lift=0.038`, `mean_min_gripper_object_distance=0.0318`.
+- Iteration 2 at `100008` timesteps: `success_rate=0.0`, `mean_max_object_lift=0.1479`, `mean_min_gripper_object_distance=0.0092`, `video_object_motion_distance=0.2884`.
+- Iteration 3 at `150012` timesteps: `success_rate=0.0`, `mean_max_object_lift=0.0987`, `mean_min_gripper_object_distance=0.0114`, `video_object_motion_distance=0.1502`.
+- `r30o_stdout.log` shows training continuing around `168000` timesteps with rollout `success_rate` around `0.02`.
+
+### Decision
+- Classified as progress / still ambiguous.
+- The hard release/withdraw success gate is now preventing the previous inserted-gripper scalar-success exploit; zero eval success is expected while the policy relearns release and withdrawal.
+- No DB-guided correction yet. Continue run007 and inspect the next high-success or near-success video candidate before any stage advance.
+
+## 104 - 2026-05-28 KST - run007 stage 01 visual approval
+
+### Evidence
+- Live-process check found run007 active as PID `36684`; TensorBoard remains active as PID `78768`.
+- `eval_results.json` has 6 records. Iteration 5 reached `success_rate=0.85`; iteration 6 reached `success_rate=1.0` at `300024` timesteps with `mean_final_object_goal_distance=0.0367`, `mean_max_object_lift=0.1547`, `mean_min_gripper_object_distance=0.0067`, `video_episode_success=1.0`, and `video_max_step_object_displacement_without_contact=0.0372`.
+- Generated and inspected `stage_01_iteration_006_contact_sheet.png` and `stage_01_iteration_006_box_zoom_sheet.png`.
+- Visual evidence shows the corrected behavior: approach from the randomized robot-front start, grasp/contact, lift and carry to the robot-left tray, placement into the tray from above, gripper opening/release, and withdrawal away from the tray while the object remains in the tray. No visible pushing/sliding/tunneling shortcut was observed in the reviewed frames.
+
+### Decision
+- Created `runs\learning_4\run_007_learning_roadmap_stage1_release_success_gate_seed7\videos\stage_01_iteration_006_rollout.approved.json` with the matching artifact hash `ed30167cb537f7c194a1c4326e71373e09d85d128cb058e4a86a4b22f53ae5cb`.
+- The fetch loop accepted the marker and updated iteration 6 to `visual_approval_status=approved`.
+- This clears only internal curriculum stage 01 (`RobotRLFetchBoxPlaceBasicRandomNarrow-v0`), not the whole Learning Roadmap Stage 1. The run continues into the next internal randomization stage; future stages still require telemetry plus visual approval.
+
+## 105 - 2026-05-28 KST - run007 rejected at stage 02 and run008 strict withdraw gate started
+
+### Evidence
+- Live-process check found run007 active as PID `36684` and TensorBoard as PID `78768` before intervention.
+- `eval_results.json` had 10 records. Internal stage 01 had already been visually approved at iteration 6.
+- Internal stage 02 (`RobotRLFetchBoxPlaceBasicRandomMedium-v0`) repeatedly produced high scalar success, but latest iteration 10 at `500040` timesteps reported `success_rate=0.95`, `mean_final_object_goal_distance=0.0365`, `mean_max_object_lift=0.1673`, `mean_min_gripper_object_distance=0.0143`, `video_episode_success=1.0`, `video_place_return_success=0.0`, and `place_return_success_rate=0.15`.
+- The visual gate was not satisfied: the rollout did not prove the full contract of release, settle, and sufficient withdrawal from the robot-left tray.
+
+### Changes
+- Classified run007 internal stage 02 as clearly wrong and stopped PID `36684`.
+- Tightened the release/withdraw success gate by adding `release_withdraw_distance=0.14m` and using it for placement diagnostics and release success instead of the tray half-size threshold.
+- Extended `test_single_random_stage_success_requires_release_withdraw_gate` so edge withdrawal at `0.08m` fails and full withdrawal to the initial gripper pose passes.
+- Started replacement Stage 1 run:
+  - PID: `15108`
+  - Output dir: `runs\learning_4\run_008_learning_roadmap_stage1_strict_withdraw_gate_seed7`
+  - TensorBoard PID: `47688`
+  - TensorBoard URL: `http://127.0.0.1:6006/`
+- Updated the R30O heartbeat automation to monitor run008.
+
+### Verification
+- Focused green: `python -m unittest tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_success_requires_release_withdraw_gate tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_release_withdraw_after_placement tests.test_fetch_training.FetchTrainingConfigTest.test_single_random_stage_rewards_grasp_lift_before_goal_chasing -v` passed, 3 tests OK.
+- Full green: `python -m unittest discover -s tests -v` passed, 85 tests OK.
+- Live-process check after restart found run008 active as PID `15108` and TensorBoard on run008 logs as PID `47688`.

@@ -6,6 +6,18 @@ learning_4 resets the direction after the fixed-position multi-object lanes. The
 
 Only after this single-object randomized skill is visually and numerically stable should the project move back to two random objects.
 
+This is **Learning Roadmap Stage 1**. The full roadmap target is `n` objects in the box:
+
+| Roadmap stage | Name | Completion target |
+| ---: | --- | --- |
+| 1 | Single-object randomized pick-and-place | Current stage. One random object must be grasped, lifted, carried, placed, released, settled, and visually approved. |
+| 2 | Two-object cued placement | Two objects in the box with active-object cues and no fixed-position shortcut. |
+| 3 | Two-object randomized placement | Two random objects in the box with valid grasp/lift/carry/place for each object. |
+| 4 | Incremental `n`-object placement | Increase object count only after the previous count clears numeric, telemetry, and visual gates. |
+| 5 | Final `n`-object generalization | The requested `n` objects are placed in the box across held-out seeds without pushing, sliding, tunneling, or scalar-only success. |
+
+Reward and gate changes for this lane must refer to `docs/r30o_pick_place_reward_design_db.md` before editing code. The DB is the reference for staged reward design, contact/penetration penalties, HER consistency warnings, and telemetry required for R30O acceptance.
+
 ## Stage Plan
 
 | Stage | Environment | Object start radius | Success gate |
@@ -101,3 +113,93 @@ Notes:
 - This run restarts the same random generalization lane with enforced visual approval and selected-video trajectory diagnostics.
 - r30o should inspect any pending GIF, create the approval marker only when the checklist is actually true, and let the same running loop advance after the marker is detected.
 - The next learning direction after a valid Stage 4 completion is two random objects, not fixed object slots.
+
+### run_003_learning_roadmap_stage1_r30o_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_003_learning_roadmap_stage1_r30o_seed7
+```
+
+Notes:
+
+- This is the active R30O run for Learning Roadmap Stage 1 after the object starts were moved to the visible opposite side of the tray.
+- Use `docs\r30o_pick_place_reward_design_db.md` when judging whether reward/gate changes are needed.
+- Clear this run only when the final Stage 1 policy passes numeric, telemetry, and visual approval gates.
+- Stopped by R30O after `stage_01_iteration_009` because 450k timesteps still showed `success_rate=0.0`, `mean_max_object_lift=0.0`, and no valid grasp/lift progression. This was classified as clearly wrong under the DB reward-design contract.
+- Superseded again because its environment used the wrong layout assumption: object starts had been moved to the tray opposite side instead of remaining random in the robot-front workspace.
+
+### run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_004_learning_roadmap_stage1_r30o_grasp_lift_reward_seed7
+```
+
+Notes:
+
+- This is the active R30O run after the DB-guided Stage 1 reward correction.
+- The correction weakens pre-lift goal chasing and strengthens gripper-object approach plus lift reward so Stage 1 can learn grasp/lift before box placement.
+- Judge this run first on whether `mean_min_gripper_object_distance` improves into stable close contact and `mean_max_object_lift` becomes nonzero.
+- Stopped after user correction: the box must be on the robot-left side and random object starts must stay in the robot-front workspace. Run004 used the prior wrong layout, so its metrics are not valid for the corrected roadmap.
+
+### run_005_learning_roadmap_stage1_left_box_front_random_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_005_learning_roadmap_stage1_left_box_front_random_seed7
+```
+
+Notes:
+
+- This is the corrected active layout: tray at robot-left target `(1.42, 0.92)`, object randomized around robot-front center `(1.30, 0.75)`.
+- The fixed-motion shortcut is rejected by randomized starts. R30O should judge whether the policy learns approach, grasp, lift, carry to the left box, physical placement, release, and settle.
+- Stopped by R30O after `stage_01_iteration_005`: iterations 4 and 5 reached scalar `success_rate=0.95` with good grasp/lift/carry telemetry, but visual review showed the gripper still inserted inside the box at the end of the rollout. This failed release/settle/withdrawal acceptance and was classified as clearly wrong.
+
+### run_006_learning_roadmap_stage1_release_withdraw_reward_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_006_learning_roadmap_stage1_release_withdraw_reward_seed7
+```
+
+Notes:
+
+- This is the active R30O Stage 1 run after the DB-guided release/withdraw reward correction.
+- The correction preserves the grasp/lift shaping from run005, then after placement rewards gripper opening, separation from the object, and home-direction withdrawal while penalizing continued close gripper-object contact inside the box.
+- Accept only when telemetry and video show grasp, lift, carry to the robot-left box, physical placement, release, settle, withdrawal from the box, and no pushing/sliding/tunneling.
+- Stopped by R30O after `stage_01_iteration_005`: the release/withdraw reward correction was not enough. High scalar-success rollouts still ended with the gripper inserted inside the box, so scalar success and visual acceptance remained misaligned.
+
+### run_007_learning_roadmap_stage1_release_success_gate_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_007_learning_roadmap_stage1_release_success_gate_seed7
+```
+
+Notes:
+
+- This was the R30O Stage 1 run after adding a hard release/withdraw success gate to the single-random curriculum.
+- The basic random stages now count success only when the object is placed, the gripper is open, the gripper is separated from the object, and the gripper has withdrawn from the tray area.
+- This should keep scalar success aligned with the visual gate instead of rewarding inserted-gripper endpoints.
+- Internal stage 01 was visually approved at `stage_01_iteration_006`.
+- Stopped by R30O during internal stage 02 after repeated high scalar success still failed the stricter visual contract. Latest iteration 10 at 500k timesteps reported `success_rate=0.95`, but `video_place_return_success=0.0` and `place_return_success_rate=0.15`, and visual review did not prove sufficient withdrawal from the tray.
+
+### run_008_learning_roadmap_stage1_strict_withdraw_gate_seed7
+
+Command:
+
+```powershell
+python -m robotrl.cli fetch-loop --curriculum single-random-to-return --chunk-timesteps 50000 --n-envs 6 --learning-starts 10000 --checkpoint-interval 50000 --eval-episodes 20 --success-threshold 0.8 --seed 7 --visual-approval-timeout-seconds 1800 --visual-approval-poll-interval-seconds 30 --output-dir runs\learning_4\run_008_learning_roadmap_stage1_strict_withdraw_gate_seed7
+```
+
+Notes:
+
+- This is the active R30O Stage 1 run after tightening the release/withdraw success gate.
+- The release gate now requires withdrawal by `release_withdraw_distance=0.14m`, not merely reaching the tray half-size threshold.
+- Accept only when telemetry and video prove grasp, lift, carry to the robot-left tray, physical placement, release, settle, withdrawal from the tray, and no pushing/sliding/tunneling.
